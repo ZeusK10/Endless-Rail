@@ -63,6 +63,10 @@ const activityJoinButton = element<HTMLButtonElement>("activity-join-button");
 const controllerValue = element<HTMLElement>("controller-value");
 const activityValue = element<HTMLElement>("activity-value");
 const achievementValue = element<HTMLElement>("achievement-value");
+const comfortValue = element<HTMLElement>("comfort-value");
+const bestSpeedValue = element<HTMLElement>("best-speed-value");
+const overspeedValue = element<HTMLElement>("overspeed-value");
+const milestoneValue = element<HTMLElement>("milestones-value");
 const throttleValue = element<HTMLElement>("throttle-value");
 const brakeValue = element<HTMLElement>("brake-value");
 const riskValue = element<HTMLElement>("risk-value");
@@ -97,6 +101,7 @@ let accumulator = 0;
 let quality = 1;
 let cameraSensitivity = 1;
 let driverMessageUntil = 0;
+let lastActivityMessage = "";
 let lastControllerName = "";
 const forward = new THREE.Vector3();
 const side = new THREE.Vector3();
@@ -329,6 +334,10 @@ function updateInterface(): void {
   activityNoticeLabel.textContent = activities.prompt;
   activityJoinButton.hidden = !activities.prompt.includes("nearby");
   achievementValue.textContent = String(activities.completed);
+  comfortValue.textContent = String(Math.round(activities.comfortScore));
+  bestSpeedValue.textContent = String(Math.round(activities.bestSpeedKmh));
+  overspeedValue.textContent = String(Math.round(activities.overspeedMeters));
+  milestoneValue.textContent = String(activities.milestones);
   recoverButton.hidden = !simulation.derailed;
   if (controls.gamepadName !== lastControllerName) {
     lastControllerName = controls.gamepadName;
@@ -400,7 +409,13 @@ renderer.setAnimationLoop((time) => {
     }
     if (iterations >= 4) accumulator = 0;
     activities.update(simulation.distance, simulation.speedKmh,
-      simulation.brake, simulation.mode);
+      simulation.brake, simulation.mode, simulation.acceleration,
+      simulation.speedLimitKmh);
+    if (activities.message && activities.message !== lastActivityMessage) {
+      lastActivityMessage = activities.message;
+      driverMessage.textContent = activities.message;
+      driverMessageUntil = performance.now() + 2900;
+    }
   }
 
   world.update(simulation.distance, simulation.speed,

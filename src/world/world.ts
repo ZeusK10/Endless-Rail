@@ -32,6 +32,11 @@ const bridgeStone = new THREE.MeshLambertMaterial({ color: "#a0a69c", flatShadin
 const bridgeSteel = new THREE.MeshLambertMaterial({ color: "#5d7f82" });
 const tunnelRock = new THREE.MeshLambertMaterial({ color: "#827e77", flatShading: true });
 const soilColor = paint("#ad8f6f");
+const landmarkMaterials: Record<Biome, THREE.MeshLambertMaterial> = {
+  highlands: new THREE.MeshLambertMaterial({ color: "#dcaf66", flatShading: true }),
+  cherry: new THREE.MeshLambertMaterial({ color: "#e3a0bd", flatShading: true }),
+  lakeside: new THREE.MeshLambertMaterial({ color: "#8bbecb", flatShading: true }),
+};
 
 const biomeGrass: Record<Biome, THREE.Color> = {
   highlands: paint("#93c77b"),
@@ -117,6 +122,7 @@ export class WorldStream {
     this.createTerrain(chunk, start, end);
     this.createRail(chunk, start, end);
     this.createInfrastructure(chunk, start, end);
+    this.createLandmarks(chunk, start, end);
     populateLandscape({ chunk, rail: this.rail, landscape: this.landscape },
       index, start, end, this.densityScale);
     if (((index % 12) + 12) % 12 === 7) {
@@ -271,6 +277,38 @@ export class WorldStream {
           put(s, side, railY + 1.7, 1.25, 4.1, 18.5, tunnelRock);
         }
       }
+    }
+  }
+
+  private createLandmarks(chunk: Chunk, start: number, end: number): void {
+    // Every optional activity location has a visible, biome-tinted trackside
+    // landmark. A fixed seed and absolute distance preserve it on revisits.
+    const first = Math.floor(start / 1550) - 1;
+    const last = Math.floor(end / 1550) + 1;
+    for (let index = first; index <= last; index++) {
+      if (index <= 0) continue;
+      const s = index * 1550 + 280;
+      if (s < start || s >= end) continue;
+      const offset = (this.rail.seed ^ index) & 1 ? 24 : -24;
+      const foot = this.local(chunk, s, offset);
+      foot.y = this.landscape.height(s, offset) - chunk.center.y;
+      const root = new THREE.Group();
+      root.position.copy(foot);
+      root.rotation.y = Math.atan2(-this.rail.tangent(s).x, -this.rail.tangent(s).z);
+      const base = new THREE.Mesh(sharedBeam, bridgeStone);
+      base.scale.set(5.5, 1.3, 5.5);
+      base.position.y = .65;
+      root.add(base);
+      const tower = new THREE.Mesh(sharedBeam, tunnelRock);
+      tower.scale.set(2, 10.5, 2);
+      tower.position.y = 6.55;
+      root.add(tower);
+      const cap = new THREE.Mesh(new THREE.ConeGeometry(3.2, 4.8, 6),
+        landmarkMaterials[biomeAt(s)]);
+      cap.position.y = 14.1;
+      root.add(cap);
+      chunk.group.add(root);
+      chunk.geometries.push(cap.geometry);
     }
   }
 
