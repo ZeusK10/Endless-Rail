@@ -155,7 +155,7 @@ function setSettings(open: boolean): void {
   settingsButton.setAttribute("aria-expanded", String(settingsOpen));
   settingsScrim.hidden = !settingsOpen;
   if (settingsOpen) settingsClose.focus();
-  else if (document.activeElement === settingsClose) settingsButton.focus();
+  else if (settingsDrawer.contains(document.activeElement)) settingsButton.focus();
 }
 
 settingsButton.addEventListener("click", () => setSettings(!settingsOpen));
