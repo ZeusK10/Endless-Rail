@@ -102,12 +102,15 @@ export function populateLandscape(
   let trees = 0;
 
   for (let i = 0; i < candidates; i++) {
-    const rand = (salt: number) => hash(seed + salt, index, i);
+    // Salt a separate mixed seed for each coordinate. Adding small salts to the
+    // seed correlated longitudinal and lateral samples into visible diagonals.
+    const rand = (salt: number) => hash(seed ^ Math.imul(salt, 0x9e3779b1), index, i);
     const s = start + 4 + rand(11) * (end - start - 8);
     const flank = rand(13) > 0.5 ? 1 : -1;
     const offset = flank * (11 + Math.pow(rand(17), 0.76) * 175);
     const density = ctx.landscape.vegetationDensity(s, offset);
-    if (rand(19) > 0.59 + density * 0.46) continue;
+    // Coherent vegetation noise forms natural groves and meadow clearings.
+    if (rand(19) > 0.28 + Math.pow(density, 1.5) * 0.72) continue;
     if (isVillageClearing(seed, index, s, offset) || isWater(ctx, s, offset)) continue;
 
     const biome = biomeAt(s);
@@ -169,7 +172,7 @@ export function populateLandscape(
   let flowerCount = 0;
   let rockCount = 0;
   for (let i = 0; i < Math.round(430 * densityScale); i++) {
-    const rand = (salt: number) => hash(seed + salt, index, i);
+    const rand = (salt: number) => hash(seed ^ Math.imul(salt, 0x9e3779b1), index, i);
     const s = start + 2 + rand(101) * (end - start - 4);
     const offset = (rand(102) > 0.5 ? 1 : -1) * (6 + rand(103) * 184);
     if (isVillageClearing(seed, index, s, offset) || isWater(ctx, s, offset)) continue;
