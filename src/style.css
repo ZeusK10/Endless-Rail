@@ -138,3 +138,6 @@ button:active { transform: scale(.97); }
 @media (pointer: coarse) {
   .free-controls:not([hidden]) { display: flex; }
 }
+
+.risk-medium { color: #ba7928; }
+.risk-high { color: #c24c46; font-weight: 900; }

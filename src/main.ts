@@ -57,6 +57,7 @@ const activityValue = element<HTMLElement>("activity-value");
 const achievementValue = element<HTMLElement>("achievement-value");
 const throttleValue = element<HTMLElement>("throttle-value");
 const brakeValue = element<HTMLElement>("brake-value");
+const riskValue = element<HTMLElement>("risk-value");
 const recoverButton = element<HTMLButtonElement>("recover-button");
 const freeControls = element<HTMLElement>("free-controls");
 const cameraValue = element<HTMLElement>("camera-value");
@@ -216,6 +217,12 @@ function updateInterface(): void {
   directionValue.textContent = simulation.direction === 1 ? "FORWARD" : "REVERSE";
   throttleValue.textContent = Math.round(simulation.throttle * 100) + "%";
   brakeValue.textContent = Math.round(simulation.brake * 100) + "%";
+  riskValue.textContent = simulation.derailed ? "DERAILED" :
+    simulation.derailmentEnabled
+      ? Math.round(simulation.derailmentChance10s * 100) + "% / 10s"
+      : "OFF";
+  riskValue.className = simulation.derailmentRisk > 0.68
+    ? "risk-high" : simulation.derailmentRisk > 0.35 ? "risk-medium" : "";
   activityValue.textContent = activities.prompt || activities.message ||
     "Follow the horizon. Optional activities appear along the tracks.";
   achievementValue.textContent = String(activities.completed);
@@ -279,9 +286,19 @@ renderer.setAnimationLoop((time) => {
 
   world.update(simulation.distance, simulation.speed,
     freeCamera ? -freePosition.z : undefined);
-  trainView.update(simulation.distance, simulation.speed, dt, world.originPoint);
+  trainView.update(simulation.distance, simulation.speed, dt, world.originPoint,
+    simulation.throttle, simulation.derailed);
   updateCamera(Math.max(dt, 1 / 60));
-  audio.update(simulation.speedKmh, !playing || paused);
+  audio.update({
+    speedKmh: simulation.speedKmh,
+    throttle: simulation.throttle,
+    brake: simulation.brake,
+    curvature: rail.curvature(simulation.distance),
+    derailmentRisk: simulation.derailmentRisk,
+    traveled: simulation.traveled,
+    derailed: simulation.derailed,
+    paused: !playing || paused,
+  });
   updateInterface();
   renderer.render(scene, camera);
 });

@@ -147,6 +147,7 @@ export class TrainAudio {
     if (!context || !output || !buffer) return;
     const source = context.createBufferSource();
     source.buffer = buffer;
+    source.loop = true;
     source.playbackRate.value = 0.78 + cutoff / 5000;
     const filter = context.createBiquadFilter();
     filter.type = type;
