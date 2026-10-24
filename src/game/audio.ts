@@ -130,11 +130,30 @@ export class TrainAudio {
     }));
   }
 
+  /** Overlap the end with the beginning to prevent a click at each loop. */
+  private seamlessLoop(buffer: AudioBuffer): AudioBuffer {
+    const context = this.context!;
+    const fade = Math.min(Math.floor(buffer.sampleRate * 0.42),
+      Math.floor(buffer.length / 5));
+    const length = buffer.length - fade;
+    const result = context.createBuffer(buffer.numberOfChannels, length, buffer.sampleRate);
+    for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+      const input = buffer.getChannelData(channel);
+      const output = result.getChannelData(channel);
+      output.set(input.subarray(0, length));
+      for (let i = 0; i < fade; i++) {
+        const t = i / fade;
+        output[i] = input[length + i] * (1 - t) + input[i] * t;
+      }
+    }
+    return result;
+  }
+
   private makeLoop(buffer: AudioBuffer, highCut: number): LoopVoice {
     const context = this.context!;
     const output = this.output!;
     const source = context.createBufferSource();
-    source.buffer = buffer;
+    source.buffer = this.seamlessLoop(buffer);
     source.loop = true;
     const cleanBass = context.createBiquadFilter();
     cleanBass.type = "highpass";

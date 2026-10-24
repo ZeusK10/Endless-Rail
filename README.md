@@ -13,12 +13,12 @@ A lightweight, single-player, browser-based toy-train journey through a procedur
 - Smooth acceleration, braking, coasting and gradient physics, with visible sway.
 - Manual, cruise control and autodrive; optional, graded derailment probability based on speed, cornering and harsh braking. HUD estimates the risk over the next ten seconds.
 - Controller, keyboard and touchscreen controls; four train cameras plus free-fly camera with independent world streaming.
-- Offline, procedural diesel audio: idle and rev layers, rolling rail noise, speed-linked joint clicks, air-brake hiss, curve squeal, multi-chime air horn, and derailment crash effects.
+- Bundled CC0 recordings of a real diesel idling, rail cars rolling and a longer locomotive horn, blended by speed and throttle. Added generated rail-joint clicks, brake hiss, curve squeal, and derailment crash effects.
 - Optional speed, smooth-driving and scenic activities. Session-only milestones.
 - Main menu, minimalist HUD and low/balanced/high rendering and vegetation-density settings.
 - **No accounts, multiplayer, backend or save system. Refresh resets the experience.**
 
-The train, scenery and sound are stylized representations rather than scanned models or recorded engine/horn samples. All audio is synthesized with the Web Audio API and runs without network requests. The scene is a playable early version, not a finished art or simulation release. Several train types, detailed stations, track junctions, advanced bridge/tunnel generation and professionally recorded locomotive samples are future improvements.
+The train and scenery are stylized low-poly representations rather than scanned models. The new train audio uses real field recordings plus procedural effects, all bundled locally. See [AUDIO_SOURCES.md](AUDIO_SOURCES.md) for the recordings, edits and CC0 licensing. The scene is a playable early version, not a finished art or simulation release. Several train types, detailed stations, track junctions, advanced bridge/tunnel generation and a larger library of different locomotive recordings is a future improvement.
 
 ## Run
 
@@ -38,7 +38,7 @@ npm run build
 
 ## Train audio and derailment
 
-Audio starts after a user gesture as required by iPad/Safari browsers. Diesel pitch and load respond to throttle and speed, while wind, rail clicks and brake sounds respond to running conditions. Curve-flange squeal increases on bends and at elevated risk.
+Audio starts after a user gesture as required by iPad/Safari browsers. Recorded diesel playback rate/volume respond to throttle, the recorded wheel-rail layer takes over as speed increases, and filtered joint clicks and brake sounds respond to running conditions. Curve-flange squeal increases on bends and at elevated risk.
 
 Derailment remains OFF by default. When enabled in the pause menu, the HUD displays an **estimated ten-second probability** if the current conditions persist. High speed in sharper curves and hard braking increase that probability; a derailment stops the train and plays a one-shot crash sound. Recovery resets the locomotive, not the world. No audio settings or game state are saved.
 
