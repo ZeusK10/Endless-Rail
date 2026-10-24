@@ -27,6 +27,11 @@ const waterMaterial = new THREE.MeshLambertMaterial({
   color: "#6cc9dc", transparent: true, opacity: 0.92, side: THREE.DoubleSide,
 });
 const paint = (color: string) => new THREE.Color(color);
+const sharedBeam = new THREE.BoxGeometry(1, 1, 1);
+const bridgeStone = new THREE.MeshLambertMaterial({ color: "#a0a69c", flatShading: true });
+const bridgeSteel = new THREE.MeshLambertMaterial({ color: "#5d7f82" });
+const tunnelRock = new THREE.MeshLambertMaterial({ color: "#827e77", flatShading: true });
+const soilColor = paint("#ad8f6f");
 
 const biomeGrass: Record<Biome, THREE.Color> = {
   highlands: paint("#93c77b"),
@@ -111,6 +116,7 @@ export class WorldStream {
 
     this.createTerrain(chunk, start, end);
     this.createRail(chunk, start, end);
+    this.createInfrastructure(chunk, start, end);
     populateLandscape({ chunk, rail: this.rail, landscape: this.landscape },
       index, start, end, this.densityScale);
     if (((index % 12) + 12) % 12 === 7) {
@@ -131,8 +137,10 @@ export class WorldStream {
   }
 
   private createTerrain(chunk: Chunk, start: number, end: number): void {
-    const rows = 32;
-    const columns = 32;
+    // Higher scene quality increases near-field relief without changing the
+    // deterministic terrain function or cracking chunk seams.
+    const rows = this.densityScale <= 0.55 ? 26 : this.densityScale >= 1.1 ? 44 : 36;
+    const columns = rows;
     const positions: number[] = [];
     const colors: number[] = [];
     const indices: number[] = [];
@@ -149,9 +157,14 @@ export class WorldStream {
         positions.push(point.x, point.y, point.z);
         const variation = 0.76 + this.landscape.tint(s, offset) * 0.38;
         const altitude = Math.max(0, point.y + chunk.center.y - this.rail.point(s).y);
-        const rock = THREE.MathUtils.clamp((altitude - 18) / 65, 0, 0.65);
+        const slope = Math.abs(this.terrainHeight(s, offset + 4) -
+          this.terrainHeight(s, offset - 4)) / 8;
+        const bareSoil = THREE.MathUtils.clamp((slope - .12) * 1.15, 0, .48);
+        const rock = THREE.MathUtils.clamp((altitude - 16) / 60 +
+          (slope - .5) * .6, 0, .76);
         const color = base.clone().multiplyScalar(variation)
-          .lerp(new THREE.Color("#a2a68c"), rock);
+          .lerp(soilColor, bareSoil)
+          .lerp(new THREE.Color("#92968d"), rock);
         colors.push(color.r, color.g, color.b);
         if (row < rows && col < columns) {
           const a = row * (columns + 1) + col;
@@ -219,6 +232,46 @@ export class WorldStream {
     sleepers.instanceMatrix.needsUpdate = true;
     chunk.group.add(sleepers);
     chunk.instances.push(sleepers);
+  }
+
+  private createInfrastructure(chunk: Chunk, start: number, end: number): void {
+    // Reusable simple meshes create bridges, tunnel ribs and retaining walls
+    // only where the seeded rail corridor actually needs them.
+    const put = (s: number, offset: number, y: number,
+      width: number, height: number, length: number,
+      finish: THREE.Material): void => {
+      const piece = new THREE.Mesh(sharedBeam, finish);
+      piece.position.copy(this.local(chunk, s, offset));
+      piece.position.y = y - chunk.center.y;
+      piece.rotation.y = Math.atan2(-this.rail.tangent(s).x,
+        -this.rail.tangent(s).z);
+      piece.scale.set(width, height, length);
+      chunk.group.add(piece);
+    };
+    for (let s = start + 9; s < end; s += 18) {
+      const feature = this.rail.featureAt(s);
+      const strength = this.rail.featureStrength(s);
+      if (strength < .18 || feature === "open") continue;
+      const railY = this.rail.point(s).y;
+      if (feature === "bridge") {
+        const bed = this.terrainHeight(s, 0);
+        const pierHeight = Math.max(2, railY - bed);
+        put(s, 0, railY - pierHeight / 2 - .35, 1.45, pierHeight, 1.6, bridgeStone);
+        put(s, 0, railY - .50, 6.6, .52, 18.7, bridgeSteel);
+        for (const side of [-3.1, 3.1]) {
+          put(s, side, railY + .55, .16, 1.8, 18.6, bridgeSteel);
+        }
+      } else if (feature === "tunnel") {
+        for (const side of [-4.0, 4.0]) {
+          put(s, side, railY + 3.1, 1.7, 7.5, 18.5, tunnelRock);
+        }
+        put(s, 0, railY + 6.55, 9.5, 1.5, 18.5, tunnelRock);
+      } else if (feature === "cutting") {
+        for (const side of [-7.2, 7.2]) {
+          put(s, side, railY + 1.7, 1.25, 4.1, 18.5, tunnelRock);
+        }
+      }
+    }
   }
 
   private createLake(chunk: Chunk, mid: number): void {

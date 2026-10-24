@@ -32,6 +32,10 @@ const canopyShapes = [
 const shrubShape = new THREE.IcosahedronGeometry(0.75, 0);
 const flowerShape = new THREE.ConeGeometry(0.19, 0.65, 4);
 const rockShape = new THREE.DodecahedronGeometry(0.95, 0);
+const fallenShape = new THREE.CylinderGeometry(0.28, 0.42, 5.7, 6);
+fallenShape.rotateZ(Math.PI / 2);
+const soil = lambert("#a38160");
+const field = lambert("#8da65a");
 
 const walls = ["#efe0b5", "#eac8a6", "#f2e0cd", "#d6e4d9", "#dabaa5"].map(lambert);
 const roofs = ["#995a4b", "#805e55", "#696c6a", "#ba7760", "#675b69"].map(lambert);
@@ -199,6 +203,48 @@ export function populateLandscape(
   addInstances(ctx, shrubs, shrubsCount);
   addInstances(ctx, flowers, flowerCount);
   addInstances(ctx, rocks, rockCount);
+
+  // Fallen trunks, young roadside growth and larger rock outcrops provide
+  // forest ages and readable foreground detail without adding draw calls.
+  const extraCount = Math.max(2, Math.round(26 * densityScale));
+  const logs = new THREE.InstancedMesh(fallenShape, wood, extraCount);
+  const boulders = new THREE.InstancedMesh(rockShape, stoneMaterial, extraCount);
+  const saplings = new THREE.InstancedMesh(shrubShape, grassMaterial, extraCount * 2);
+  let logCount = 0, boulderCount = 0, saplingCount = 0;
+  for (let i = 0; i < extraCount; i++) {
+    const rand = (salt: number) => hash(seed ^ Math.imul(salt, 0x9e3779b1), index, i);
+    const s = start + rand(202) * (end - start);
+    const offset = (rand(203) < 0.5 ? -1 : 1) * (12 + rand(204) * 155);
+    if (isWater(ctx, s, offset) || isVillageClearing(seed, index, s, offset)) continue;
+    const base = basePoint(ctx, s, offset);
+    const size = 0.7 + rand(205) * 1.35;
+    if (rand(206) > 0.47) {
+      setInstance(logs, logCount++, base.clone().add(new THREE.Vector3(0, .36, 0)),
+        new THREE.Vector3(size, size, size), rand(207) * Math.PI * 2);
+    } else {
+      const rockSize = 1.5 + rand(208) * 3.3;
+      setInstance(boulders, boulderCount++,
+        base.clone().add(new THREE.Vector3(0, rockSize * 0.25, 0)),
+        new THREE.Vector3(rockSize, rockSize * .55, rockSize * .8),
+        rand(209) * Math.PI * 2, ["#878f84","#aaa292","#9b9a86"][Math.floor(rand(210)*3)]);
+    }
+    // Near-track bushes follow individual random positions, not parallel rows.
+    for (let j = 0; j < 2; j++) {
+      const roadS = start + hash(seed ^ 0x6546abc, index, i * 3 + j) * (end - start);
+      const roadOffset = (rand(213 + j) < .5 ? -1 : 1) * (8 + rand(216 + j) * 9);
+      if (isWater(ctx, roadS, roadOffset)) continue;
+      const point = basePoint(ctx, roadS, roadOffset);
+      const scale = 0.3 + rand(220 + j) * 0.7;
+      const palette = FOLIAGE[biomeAt(roadS)];
+      setInstance(saplings, saplingCount++,
+        point.add(new THREE.Vector3(0, scale * .3, 0)),
+        new THREE.Vector3(scale, scale, scale),
+        rand(224 + j) * 6.28, palette[Math.floor(rand(228 + j) * palette.length)]);
+    }
+  }
+  addInstances(ctx, logs, logCount);
+  addInstances(ctx, boulders, boulderCount);
+  addInstances(ctx, saplings, saplingCount);
 }
 
 function block(
@@ -278,12 +324,12 @@ export function populateVillage(ctx: Context, index: number, mid: number): void 
   for (let i = 0; i < count; i++) {
     const row = i % 2;
     const col = Math.floor(i / 2);
-    const s = mid - 79 + col * 29 + (hash(seed + 4, index, i) - 0.5) * 9;
-    const offset = side * (34 + row * 38 + hash(seed + 5, index, i) * 12);
+    const s = mid - 83 + col * 30 + (hash(seed ^ 0x3b15e, index, i) - 0.5) * 24;
+    const offset = side * (33 + row * 41 + hash(seed ^ 0x941e5, index, i) * 18);
     const house = makeHouse(biome, i, 0.68 + hash(seed + 6, index, i) * 0.45);
     house.position.copy(basePoint(ctx, s, offset));
     house.rotation.y = Math.atan2(-ctx.rail.tangent(s).x, -ctx.rail.tangent(s).z) +
-      (side < 0 ? Math.PI : 0);
+      (side < 0 ? Math.PI : 0) + (hash(seed ^ 0x861aa, index, i) - .5) * .44;
     ctx.chunk.group.add(house);
     // Short garden paths run from each doorway towards the village lane.
     const path = new THREE.Mesh(reusableBox, paths);
@@ -292,6 +338,17 @@ export function populateVillage(ctx: Context, index: number, mid: number): void 
     path.position.y += 0.1;
     path.rotation.y = house.rotation.y;
     ctx.chunk.group.add(path);
+
+    if (i % 3 === 0) {
+      // Individual vegetable plots and gardens make each hamlet feel lived in.
+      const plot = basePoint(ctx, s + 8, offset + side * 9);
+      block(ctx.chunk.group, soil, plot.x, plot.y + .08, plot.z, 5.8, .16, 8.4);
+      for (let bed = -1; bed <= 1; bed++) {
+        block(ctx.chunk.group, field,
+          plot.x + bed * 1.55, plot.y + .19, plot.z,
+          .75, .16, 7.4);
+      }
+    }
   }
 
   // A shared unpaved lane and small fences tie individual houses together.
