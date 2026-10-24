@@ -215,6 +215,17 @@ function locomotive(): Car {
       [-1.1 + i * 0.43, 4.1, -2.85], metal);
   }
 
+  // Driver cab furnishings: two seats, control stand, dashboard and gauges.
+  for (const x of [-.8, .8]) {
+    box(group, [.67, .18, .75], [x, 2.05, 2.65], dark);
+    box(group, [.67, .83, .15], [x, 2.50, 3.03], graphite);
+    box(group, [.1, .8, .1], [x, 1.66, 2.65], metal);
+  }
+  box(group, [2.25, .22, .75], [0, 2.65, 1.34], graphite);
+  for (const x of [-.65, -.2, .25, .7]) {
+    box(group, [.22, .09, .12], [x, 2.81, 1.14], brass);
+  }
+
   // Front and rear headlamps and low-mounted marker lights.
   for (const x of [-1.0, 1.0]) {
     const lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.23, 0.23, 0.16, 10), litGlass);
@@ -278,6 +289,12 @@ function electricLocomotive(): Car {
   const headlamp = new THREE.PointLight("#fff0c2", 4.2, 18, 2);
   headlamp.position.set(0, 2.5, -4.2);
   group.add(headlamp);
+  // Reused cab consoles make the seated driving view recognizable.
+  box(group, [2.2, .25, .74], [0, 2.73, -3.47], graphite);
+  for (const x of [-.8, .8]) {
+    box(group, [.65, .18, .7], [x, 2.03, -2.48], dark);
+    box(group, [.65, .65, .18], [x, 2.40, -2.12], blue);
+  }
   bogies(group, [-2.42, 2.42], wheels);
   detailsAtEnds(group, 8.0);
   return { group, wheels, lights, headlamp, exhaust: [] };
@@ -318,6 +335,9 @@ function steamLocomotive(): Car {
   const headlamp = new THREE.PointLight("#ffddac", 4.2, 19, 2);
   headlamp.position.set(0, 3.2, -4.2);
   group.add(headlamp);
+  box(group, [2.05, .27, .65], [0, 2.75, 1.35], graphite);
+  box(group, [.8, .2, .76], [-.6, 2.12, 2.56], burgundy);
+  box(group, [.8, .76, .16], [-.6, 2.55, 2.92], dark);
   bogies(group, [-2.4, 2.4], wheels);
   return { group, wheels, lights, headlamp, exhaust };
 }
@@ -356,6 +376,18 @@ function carriage(index: number): Car {
         [flank * 1.70, 1.62, z], metal);
     }
     rail(group, flank * 1.55, 1.51, -3.6, 3.6, metal);
+  }
+
+  // Passenger compartment: paired seats, a clear central aisle and racks.
+  for (const z of [-2.3, -.75, .8, 2.35]) {
+    for (const x of [-.87, .87]) {
+      box(group, [.90, .19, .90], [x, 1.96, z], cream);
+      box(group, [.88, .84, .16], [x, 2.40, z + .35], dark);
+      box(group, [.10, .52, .10], [x, 1.63, z], graphite);
+    }
+  }
+  for (const x of [-1.17, 1.17]) {
+    box(group, [.20, .10, 6.2], [x, 3.57, 0], metal);
   }
 
   // Vestibule bellows, end doors, two roof ventilators and couplers.

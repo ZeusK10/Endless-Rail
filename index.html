@@ -86,7 +86,7 @@
         <div class="drawer-section">
           <h3>Journey tools</h3>
           <div class="drawer-grid">
-            <button id="drawer-freecam-button">Enter free camera</button>
+            <button id="drawer-freecam-button">Enter free look</button>
             <button id="drawer-lights-button" aria-pressed="true">Lights: On</button>
             <button id="drawer-activity-button">Do activity</button>
             <button data-control="locoBrake" aria-label="Hold locomotive brake">Hold loco brake</button>
@@ -163,19 +163,15 @@
       </div>
     </div>
 
-    <div id="free-controls" class="touch-controls free-controls" aria-label="Free camera flight controls" hidden>
-      <div class="touch-cluster fly-pad">
-        <button data-control="flyLeft" aria-label="Fly left">◀</button>
-        <div class="fly-vertical">
-          <button data-control="flyForward" aria-label="Fly forward">▲</button>
-          <button data-control="flyBack" aria-label="Fly backward">▼</button>
-        </div>
-        <button data-control="flyRight" aria-label="Fly right">▶</button>
+    <div id="free-controls" class="touch-controls free-controls" aria-label="Anchored free look controls" hidden>
+      <div class="touch-cluster">
+        <button data-control="flyLeft" aria-label="Look left">◀</button>
+        <button data-control="flyRight" aria-label="Look right">▶</button>
+        <button data-control="flyForward" aria-label="Look up">▲</button>
+        <button data-control="flyBack" aria-label="Look down">▼</button>
       </div>
       <div class="touch-cluster">
-        <button data-control="flyUp" aria-label="Fly higher">UP</button>
-        <button data-control="flyDown" aria-label="Fly lower">DOWN</button>
-        <button data-control="freeCamera" class="accent" aria-label="Exit free camera">TRAIN</button>
+        <button data-control="freeCamera" class="accent" aria-label="Exit free look">TRAIN</button>
       </div>
     </div>
 

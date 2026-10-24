@@ -8,6 +8,7 @@ import { hash, CHUNK_LENGTH, biomeAt, biomeBoundary } from "../src/game/constant
 import { populateVillage } from "../src/world/scenery";
 import { TrainView } from "../src/game/train-view";
 import { WorldStream } from "../src/world/world";
+import { avoidTerrain, minimumCameraY } from "../src/game/camera-rig";
 import { SkySystem, daylightAt, formatTimeOfDay } from "../src/game/sky";
 import * as THREE from "three";
 
@@ -236,4 +237,17 @@ test("occasional underwater tunnels keep water above the arched bore", () => {
   assert.equal(rail.featureAt(reservoir.s), "tunnel");
   assert.ok(reservoir.waterY > rail.point(reservoir.s).y + 7.7);
   assert.ok(terrain.isWater(reservoir.s, 0));
+});
+
+test("camera terrain sweep retracts and preserves safe clearance", () => {
+  const rail = new RailPath(7124);
+  const scene = new THREE.Scene();
+  const world = new WorldStream(scene, rail);
+  const anchor = rail.point(780).add(new THREE.Vector3(0, 5, 0));
+  const wanted = anchor.clone().addScaledVector(rail.side(780), 110);
+  wanted.y = -80;
+  const safe = avoidTerrain(anchor, wanted, rail, world);
+  assert.ok(safe.distanceTo(anchor) < wanted.distanceTo(anchor));
+  assert.ok(safe.y >= minimumCameraY(safe, rail, world));
+  world.clear();
 });
