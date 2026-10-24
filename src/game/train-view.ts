@@ -143,7 +143,8 @@ function fitHeadlamp(group: THREE.Group, x: number, y: number, z: number,
   headlamp.target.position.set(x, y - 2.5, z - 60);
   group.add(headlamp, headlamp.target);
   const beam = new THREE.Mesh(beamGeometry, beamMaterial);
-  beam.position.set(x, y - .65, z - 19);
+  // Cone tip coincides exactly with the illuminated bulb surface.
+  beam.position.set(x, y, z - 19);
   beam.name = "forward-headlight-beam";
   group.add(beam);
   return { headlamp, beam };

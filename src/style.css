@@ -469,3 +469,11 @@ button:active { transform: scale(.97); }
   .hud-main { width: min(360px, calc(100vw - 16px)); bottom: 112px; }
   .hud-collapsed { bottom: 112px; }
 }
+
+/* Keep the instrument row level with the left/right driving controls. */
+@media (pointer: fine) and (orientation: landscape) {
+  .hud-main, .hud-collapsed { bottom: max(12px, env(safe-area-inset-bottom)); }
+}
+@media (pointer: coarse) and (orientation: landscape) {
+  .hud-main, .hud-collapsed { bottom: max(12px, env(safe-area-inset-bottom)); }
+}

@@ -53,6 +53,9 @@ const groundMaterial = new THREE.MeshLambertMaterial({
 const waterMaterial = new THREE.MeshLambertMaterial({
   color: "#6cc9dc", transparent: true, opacity: 0.92, side: THREE.DoubleSide,
 });
+const lakeWaterMaterial = new THREE.MeshLambertMaterial({
+  color: "#347f98", transparent: true, opacity: .95, side: THREE.DoubleSide,
+});
 const paint = (color: string) => new THREE.Color(color);
 const sharedBeam = new THREE.BoxGeometry(1, 1, 1);
 const bridgeStone = new THREE.MeshLambertMaterial({ color: "#a0a69c", flatShading: true });
@@ -399,8 +402,8 @@ export class WorldStream {
         edge.y = this.landscape.height(channel.centerS +
           side * halfWidth * 1.8, offset) - chunk.center.y + .18;
         const inner = this.local(chunk, channel.centerS +
-          side * halfWidth * .72, offset);
-        inner.y = channel.waterY - chunk.center.y - .95;
+          side * halfWidth * .69, offset);
+        inner.y = channel.waterY - chunk.center.y - .3;
         for (const point of [inner, edge]) {
           bankPositions.push(point.x, point.y, point.z);
           const tint = .83 + Math.sin(offset * .13 + side) * .06;
@@ -961,7 +964,7 @@ export class WorldStream {
     geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
     geometry.setIndex(indices);
     geometry.computeVertexNormals();
-    const surface = new THREE.Mesh(geometry, waterMaterial);
+    const surface = new THREE.Mesh(geometry, lakeWaterMaterial);
     surface.name = "shoreline-lake";
     chunk.group.add(surface);
     chunk.geometries.push(geometry);
@@ -1028,19 +1031,18 @@ export class WorldStream {
       const shore = this.local(chunk, fishS, fishOffset);
       shore.y = this.landscape.height(fishS, fishOffset) - chunk.center.y;
       this.person(chunk.group, shore.x, shore.y, shore.z, i + 2);
-      const end = this.local(chunk, fishS + 6, lake.offset +
-        (fishOffset - lake.offset) * .65);
-      end.y = lake.waterY - chunk.center.y + .12;
-      const fishingLine = new THREE.BufferGeometry().setFromPoints([
-        shore.clone().add(new THREE.Vector3(0, 2.25, 0)),
-        shore.clone().add(new THREE.Vector3(0, 3.7, 0))
-          .lerp(end, .38),
-        end,
+      // A short held fishing rod; no oversized line running across the lake.
+      const bankDirection = Math.sign(lake.offset - fishOffset);
+      const tip = this.local(chunk, fishS + 1.45,
+        fishOffset + bankDirection * 1.5);
+      tip.y = shore.y + 3.1;
+      const rodGeometry = new THREE.BufferGeometry().setFromPoints([
+        shore.clone().add(new THREE.Vector3(0, 1.9, 0)), tip,
       ]);
-      const rod = new THREE.Line(fishingLine, fishingRodMaterial);
+      const rod = new THREE.Line(rodGeometry, fishingRodMaterial);
       rod.name = "shoreline-fishing-rod";
       chunk.group.add(rod);
-      chunk.geometries.push(fishingLine);
+      chunk.geometries.push(rodGeometry);
     }
   }
 }
