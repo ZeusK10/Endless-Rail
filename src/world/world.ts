@@ -33,6 +33,9 @@ const paint = (color: string) => new THREE.Color(color);
 const sharedBeam = new THREE.BoxGeometry(1, 1, 1);
 const bridgeStone = new THREE.MeshLambertMaterial({ color: "#a0a69c", flatShading: true });
 const bridgeSteel = new THREE.MeshLambertMaterial({ color: "#5d7f82" });
+const crossingRoad = new THREE.MeshLambertMaterial({ color: "#9b9080" });
+const crossingPaint = new THREE.MeshLambertMaterial({ color: "#dfd5b6" });
+const crossingWarning = new THREE.MeshLambertMaterial({ color: "#ba5147" });
 const tunnelRock = new THREE.MeshLambertMaterial({ color: "#827e77", flatShading: true });
 const tunnelInterior = new THREE.MeshLambertMaterial({ color: "#4e5559", side: THREE.DoubleSide, flatShading: true });
 const portalStone = new THREE.MeshLambertMaterial({ color: "#c2b9a2", flatShading: true });
@@ -152,6 +155,7 @@ export class WorldStream {
     this.createTerrain(chunk, start, end);
     this.createFarTerrain(chunk, start, end);
     this.createRail(chunk, start, end);
+    this.createCrossing(chunk, start, end);
     this.createInfrastructure(chunk, start, end);
     this.createTunnel(chunk, start, end);
     this.createTunnelOverburden(chunk, start, end);
@@ -424,6 +428,55 @@ export class WorldStream {
       sign.position.y += 2.8;
       chunk.group.add(sign);
     }
+  }
+
+  /** Seed-independent railway crossings that tie future roads to the track. */
+  private createCrossing(chunk: Chunk, start: number, end: number): void {
+    const s = Math.ceil((start - 340) / 2700) * 2700 + 340;
+    if (s < start || s >= end || this.rail.featureAt(s) !== "open") return;
+    const root = new THREE.Group();
+    root.name = "rail-crossing";
+    const tangent = this.rail.tangent(s);
+    const angle = Math.atan2(-tangent.x, -tangent.z);
+    for (let offset = -20; offset <= 20; offset += 8) {
+      const at = this.local(chunk, s, offset);
+      at.y = this.terrainHeight(s, offset) - chunk.center.y + .13;
+      if (Math.abs(offset) <= 4) at.y = this.rail.point(s).y - chunk.center.y + .02;
+      const road = new THREE.Mesh(sharedBeam, crossingRoad);
+      road.position.copy(at);
+      road.scale.set(8.8, .18, 5.8);
+      road.rotation.y = angle;
+      root.add(road);
+    }
+    for (const side of [-1, 1]) {
+      const position = this.local(chunk, s - 6, side * 8.5);
+      position.y = this.terrainHeight(s - 6, side * 8.5) - chunk.center.y;
+      const post = new THREE.Mesh(sharedBeam, bridgeSteel);
+      post.position.copy(position);
+      post.position.y += 1.65;
+      post.scale.set(.19, 3.3, .19);
+      root.add(post);
+      const warning = new THREE.Mesh(sharedBeam, crossingWarning);
+      warning.position.copy(position);
+      warning.position.y += 3.1;
+      warning.scale.set(1.3, .75, .19);
+      warning.rotation.y = angle;
+      root.add(warning);
+      const flash = new THREE.Mesh(sharedBeam, crossingPaint);
+      flash.position.copy(position);
+      flash.position.y += 3.15;
+      flash.scale.set(.75, .13, .22);
+      root.add(flash);
+      for (let i = 0; i < 4; i++) {
+        const barrier = new THREE.Mesh(sharedBeam, i % 2 ? crossingPaint : crossingWarning);
+        barrier.position.copy(this.local(chunk, s - 4, side * (8.8 + i * 1.1)));
+        barrier.position.y = position.y + 2.3;
+        barrier.scale.set(.12, .2, 1.2);
+        barrier.rotation.y = angle;
+        root.add(barrier);
+      }
+    }
+    chunk.group.add(root);
   }
 
   private createInfrastructure(chunk: Chunk, start: number, end: number): void {

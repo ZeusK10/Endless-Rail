@@ -345,3 +345,15 @@ test("forward travel and reverse revisit remain bounded and deterministic", () =
   world.clear();
   assert.equal(scene.children.length, 0);
 });
+
+test("road crossings add legible warning structures on open track", () => {
+  const rail = new RailPath(5501);
+  const world = new WorldStream(new THREE.Scene(), rail);
+  world.setDensity(.45);
+  world.setViewScale(.58);
+  world.update(340);
+  const crossing = world.scene.getObjectByName("rail-crossing");
+  assert.ok(crossing, "planned crossing should be present beside the track");
+  assert.ok(crossing.children.length >= 14);
+  world.clear();
+});
