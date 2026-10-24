@@ -343,9 +343,11 @@ function updateCamera(dt: number): void {
       .addScaledVector(forward, freeAnchorForward)
       .addScaledVector(side, freeAnchorSide);
     desiredCamera.y = target.y + freeAnchorForward * forward.y + freeAnchorHeight;
-    if (tunnel && Math.abs(freeAnchorSide) > 4.5) {
-      desiredCamera.copy(target).addScaledVector(forward, -(TRAIN_CAR_COUNT + 1) * TRAIN_CAR_SPACING);
-      desiredCamera.y = target.y + 4.4;
+    if (tunnel) {
+      const safeSide = THREE.MathUtils.clamp(freeAnchorSide, -3.7, 3.7);
+      desiredCamera.copy(target).addScaledVector(forward, freeAnchorForward)
+        .addScaledVector(side, safeSide);
+      desiredCamera.y = THREE.MathUtils.clamp(desiredCamera.y, target.y + 2.5, target.y + 5.6);
     }
     const safe = tunnel ? desiredCamera : avoidTerrain(anchor,
       desiredCamera.clone().add(origin), rail, world, 1.8).sub(origin);
@@ -372,27 +374,30 @@ function updateCamera(dt: number): void {
     desiredCamera.copy(target).addScaledVector(forward, 19);
     desiredCamera.y += 7.5;
   } else if (cameraMode === 4) {
-    // Driver-side viewpoint tucked behind the locomotive windscreen.
-    desiredCamera.copy(target).addScaledVector(forward, .9).addScaledVector(side, .45);
-    desiredCamera.y += 3.75;
+    // Behind the locomotive windshield, not embedded in the solid hood.
+    desiredCamera.copy(target).addScaledVector(forward, -2.55).addScaledVector(side, .40);
+    desiredCamera.y += 3.48;
     aim.copy(target).addScaledVector(forward, 32);
     aim.y += 3.1;
   } else {
     // A seated, side-facing view in the first passenger coach.
     desiredCamera.copy(rail.point(s - TRAIN_CAR_SPACING)).sub(origin)
       .addScaledVector(side, .7);
-    desiredCamera.y += 3.05;
-    aim.copy(desiredCamera).addScaledVector(side, 19).addScaledVector(forward, 6);
+    desiredCamera.y += 2.95;
+    aim.copy(desiredCamera).addScaledVector(side, 19).addScaledVector(forward, 5);
     aim.y += 1.0;
   }
 
   if (tunnel && cameraMode < 4) {
-    // An outdoor offset would penetrate the hillside; travel through the bore.
-    desiredCamera.copy(target).addScaledVector(forward,
-      -(TRAIN_CAR_COUNT + 1) * TRAIN_CAR_SPACING);
-    desiredCamera.y = target.y + 4.4;
-    aim.copy(target);
-    aim.y += 3.4;
+    // Keep each camera's distinctive view inside the bore. A previous shared
+    // fallback put every mode behind the final coach facing its back.
+    const tunnelLongitudinal = [-48, -17, -8, 15][cameraMode];
+    const tunnelSide = cameraMode === 2 ? 3.6 : 0;
+    desiredCamera.copy(target).addScaledVector(forward, tunnelLongitudinal)
+      .addScaledVector(side, tunnelSide);
+    desiredCamera.y = target.y + (cameraMode === 1 ? 5.65 : 4.25);
+    aim.copy(target).addScaledVector(forward, cameraMode === 3 ? 30 : 8);
+    aim.y += 3.45;
   }
   if (cameraMode < 4 && !tunnel) {
     desiredCamera.copy(avoidTerrain(anchor, desiredCamera.clone().add(origin),
@@ -411,6 +416,7 @@ function updateCamera(dt: number): void {
     camera.position.lerp(desiredCamera, alpha);
   }
   previousCameraMode = cameraMode;
+  trainView.setInteriorCameraMode(cameraMode);
   camera.lookAt(aim);
 }
 
@@ -558,6 +564,12 @@ renderer.setAnimationLoop((time) => {
   updateCamera(Math.max(dt, 1 / 60));
   weather.update(simulation.distance, playing && !paused ? dt : 0);
   sky.update(dt, playing && !paused, weather.rainAmount, weather.mistAmount);
+  // Ambient daylight fades inside a rock-lined bore; locomotive lamps remain.
+  const tunnelDarkness = rail.featureAt(simulation.distance) === "tunnel"
+    ? THREE.MathUtils.smoothstep(rail.featureStrength(simulation.distance), .14, .8)
+    : 0;
+  ambientLight.intensity *= 1 - tunnelDarkness * .73;
+  sunlight.intensity *= 1 - tunnelDarkness * .94;
   audio.update({
     speedKmh: simulation.speedKmh,
     throttle: simulation.throttle,

@@ -154,6 +154,10 @@ test("locomotive headlights project forward and obey the light toggle", () => {
   assert.ok(activeSpot()!.target.position.z < activeSpot()!.position.z - 20);
   assert.ok(scene.getObjectByName("forward-headlight-beam")?.visible);
   view.toggleLights();
+  const bulbs: THREE.Object3D[] = [];
+  scene.traverse(o => { if (o.name === "headlight-fixture") bulbs.push(o); });
+  assert.ok(bulbs.length >= 2, "each front locomotive lamp has a persistent bulb");
+  assert.ok(bulbs.every(bulb => bulb.visible), "switching off glow must not hide bulb fixtures");
   assert.equal(activeSpot()!.intensity, 0);
   assert.equal(scene.getObjectByName("forward-headlight-beam")?.visible, false);
   view.setTrainType("steam");
@@ -276,6 +280,8 @@ test("tunnels create a real continuous arch within raised terrain", () => {
   });
   assert.ok(arches.length > 0);
   assert.ok(hills.length > 0, "tunnel bore must be enclosed by an upper hillside");
+  assert.ok(scene.getObjectByName("dark-excavated-tunnel-floor"),
+    "terrain cutout needs an unlit excavated floor");
   const railHeight = rail.point(s).y;
   assert.ok(world.terrainHeight(s, 35) > railHeight + 5);
   world.clear();

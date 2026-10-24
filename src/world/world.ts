@@ -227,7 +227,9 @@ export class WorldStream {
       const base = biomeGrass[biome.from].clone()
         .lerp(biomeGrass[biome.to], biome.blend);
       for (let col = 0; col <= columns; col++) {
-        const offset = (col / columns - 0.5) * 380;
+        // Pack terrain vertices near the rail to resolve excavated tunnel walls.
+        const t = col / columns * 2 - 1;
+        const offset = Math.sign(t) * Math.pow(Math.abs(t), 1.35) * 190;
         const point = this.local(chunk, s, offset);
         point.y = this.terrainHeight(s, offset) - chunk.center.y;
         positions.push(point.x, point.y, point.z);
@@ -248,7 +250,15 @@ export class WorldStream {
         if (row < rows && col < columns) {
           const a = row * (columns + 1) + col;
           const b = a + columns + 1;
-          indices.push(a, b, a + 1, a + 1, b, b + 1);
+          const centerOffset = Math.sign((col + .5) / columns * 2 - 1) *
+            Math.pow(Math.abs((col + .5) / columns * 2 - 1), 1.35) * 190;
+          const centerS = start + (row + .5) / rows * (end - start);
+          // A real cutout, not bright green ground inside the tunnel bore.
+          if (this.rail.featureAt(centerS) !== "tunnel" ||
+              this.rail.featureStrength(centerS) < .13 ||
+              Math.abs(centerOffset) > 4.55) {
+            indices.push(a, b, a + 1, a + 1, b, b + 1);
+          }
         }
       }
     }
@@ -319,30 +329,58 @@ export class WorldStream {
     const sector = Math.round(((start + end) / 2 - 750) / 1550);
     const crossing = sector * 1550 + 750;
     if (crossing < start || crossing >= end || !this.landscape.river(crossing, 0)) return;
-    const positions: number[] = [];
-    const indices: number[] = [];
-    const steps = 70;
+    const waterPositions: number[] = [], waterIndices: number[] = [];
+    const bankPositions: number[] = [], bankColors: number[] = [], bankIndices: number[] = [];
+    const steps = 100;
     for (let i = 0; i <= steps; i++) {
-      const offset = -1120 + 2240 * i / steps;
+      // Visible stream meanders through the whole valley. Recess its surface
+      // inside a terrain-sampled riverbed rather than stretching a floating slab.
+      const offset = -680 + 1360 * i / steps;
       const channel = this.landscape.river(crossing, offset);
       if (!channel) continue;
       for (const side of [-1, 1]) {
-        const p = this.local(chunk,
-          channel.centerS + side * channel.halfWidth * .72, offset);
-        p.y = channel.waterY - chunk.center.y - .28;
-        positions.push(p.x, p.y, p.z);
+        const at = this.local(chunk, channel.centerS + side * channel.halfWidth * .69, offset);
+        at.y = channel.waterY - chunk.center.y - .3;
+        waterPositions.push(at.x, at.y, at.z);
+        const edge = this.local(chunk, channel.centerS + side * channel.halfWidth * 1.8, offset);
+        // Fold banks down to the water and blend their outer lip into the
+        // surrounding terrain; mesh faces remain contiguous along the stream.
+        edge.y = this.landscape.height(channel.centerS +
+          side * channel.halfWidth * 1.8, offset) - chunk.center.y + .18;
+        const inner = this.local(chunk, channel.centerS +
+          side * channel.halfWidth * .72, offset);
+        inner.y = channel.waterY - chunk.center.y - .95;
+        for (const point of [inner, edge]) {
+          bankPositions.push(point.x, point.y, point.z);
+          const tint = .83 + Math.sin(offset * .13 + side) * .06;
+          bankColors.push(tint, tint * .83, tint * .66);
+        }
       }
       if (i < steps) {
         const a = i * 2;
-        indices.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+        waterIndices.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+        const b = i * 4;
+        bankIndices.push(b, b + 1, b + 4, b + 1, b + 5, b + 4,
+          b + 2, b + 6, b + 3, b + 3, b + 6, b + 7);
       }
     }
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-    geometry.setIndex(indices);
-    geometry.computeVertexNormals();
-    chunk.group.add(new THREE.Mesh(geometry, waterMaterial));
-    chunk.geometries.push(geometry);
+    const waterGeometry = new THREE.BufferGeometry();
+    waterGeometry.setAttribute("position", new THREE.Float32BufferAttribute(waterPositions, 3));
+    waterGeometry.setIndex(waterIndices);
+    waterGeometry.computeVertexNormals();
+    const river = new THREE.Mesh(waterGeometry, waterMaterial);
+    river.name = "recessed-river";
+    chunk.group.add(river);
+    chunk.geometries.push(waterGeometry);
+    const bankGeometry = new THREE.BufferGeometry();
+    bankGeometry.setAttribute("position", new THREE.Float32BufferAttribute(bankPositions, 3));
+    bankGeometry.setAttribute("color", new THREE.Float32BufferAttribute(bankColors, 3));
+    bankGeometry.setIndex(bankIndices);
+    bankGeometry.computeVertexNormals();
+    const banks = new THREE.Mesh(bankGeometry, crossingRoad);
+    banks.name = "riverbank-soil";
+    chunk.group.add(banks);
+    chunk.geometries.push(bankGeometry);
   }
 
   private createRail(chunk: Chunk, start: number, end: number): void {
@@ -580,6 +618,7 @@ export class WorldStream {
     contour.push([r, 2.55], [r, .20]);
     const positions: number[] = [];
     const indices: number[] = [];
+    const floorPositions: number[] = [], floorIndices: number[] = [];
     const steps = 60;
     const putContour = (s: number): void => {
       for (const [offset, h] of contour) {
@@ -601,6 +640,28 @@ export class WorldStream {
         const b = base + contour.length + j;
         indices.push(a, b, a + 1, a + 1, b, b + 1);
       }
+      const floorBase = floorPositions.length / 3;
+      for (const slice of [s0, s1]) {
+        for (const flank of [-5.18, 5.18]) {
+          const p = this.local(chunk, slice, flank);
+          p.y += .035;
+          floorPositions.push(p.x, p.y, p.z);
+        }
+      }
+      floorIndices.push(floorBase, floorBase + 2, floorBase + 1,
+        floorBase + 1, floorBase + 2, floorBase + 3);
+    }
+    if (floorPositions.length) {
+      const floor = new THREE.BufferGeometry();
+      floor.setAttribute("position", new THREE.Float32BufferAttribute(floorPositions, 3));
+      floor.setIndex(floorIndices);
+      floor.computeVertexNormals();
+      const bed = new THREE.Mesh(floor, new THREE.MeshLambertMaterial({
+        color: "#353737", side: THREE.DoubleSide,
+      }));
+      bed.name = "dark-excavated-tunnel-floor";
+      chunk.group.add(bed);
+      chunk.geometries.push(floor);
     }
     if (positions.length) {
       const geometry = new THREE.BufferGeometry();
@@ -633,28 +694,8 @@ export class WorldStream {
       chunk.group.add(mouth);
       chunk.geometries.push(geometry);
 
-      // A rock face around the *opening*, built as an annular strip.
-      // It joins the overhead hill to the portal without capping the bore.
-      const facePoints: number[] = [], faceIndices: number[] = [];
-      for (const [offset, h] of contour) {
-        const inner = this.local(chunk, s, offset);
-        inner.y += h;
-        const outer = this.local(chunk, s, offset * 2.9);
-        outer.y += Math.max(-1.2, h * 2.05 - 2.3);
-        facePoints.push(inner.x, inner.y, inner.z, outer.x, outer.y, outer.z);
-      }
-      for (let j = 0; j < contour.length - 1; j++) {
-        const a = j * 2;
-        faceIndices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
-      }
-      const faceGeometry = new THREE.BufferGeometry();
-      faceGeometry.setAttribute("position", new THREE.Float32BufferAttribute(facePoints, 3));
-      faceGeometry.setIndex(faceIndices);
-      faceGeometry.computeVertexNormals();
-      const face = new THREE.Mesh(faceGeometry, tunnelRock);
-      face.name = "tunnel-rock-face";
-      chunk.group.add(face);
-      chunk.geometries.push(faceGeometry);
+      // The surrounding terrain is cut to the bore; don't bridge the mouth
+      // with triangulated annulus strips, which self-intersect on slopes.
     }
     for (let s = start + 12; s < end; s += 30) {
       if (this.rail.featureAt(s) !== "tunnel" || this.rail.featureStrength(s) < .75) continue;
