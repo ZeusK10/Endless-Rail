@@ -94,3 +94,27 @@ test("tablet-sized touch viewport keeps controls recoverable and free-look ancho
   await expect(page.locator("#free-controls")).toHaveAttribute("hidden", "");
   expect(errors).toEqual([]);
 });
+
+test("driving HUD hugs the bottom edge and exit/settings remain top-right", async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await page.goto("/");
+  await page.locator("#play-button").click();
+  const hud = await page.locator("#hud-main").boundingBox();
+  const settings = await page.locator("#settings-button").boundingBox();
+  expect(hud).toBeTruthy();
+  expect(settings).toBeTruthy();
+  expect(Math.abs(hud!.x + hud!.width / 2 - 512)).toBeLessThan(3);
+  expect(hud!.y + hud!.height).toBeGreaterThan(744);
+  expect(settings!.x).toBeGreaterThan(950);
+  expect(settings!.y).toBeLessThan(80);
+
+  await page.locator("#hud-collapse").click();
+  const compact = await page.locator("#hud-collapsed").boundingBox();
+  expect(compact).toBeTruthy();
+  expect(compact!.y + compact!.height).toBeGreaterThan(744);
+  await page.locator("#hud-expand").click();
+  await page.locator('[data-control="pause"]').click();
+  await expect(page.locator("#pause-screen")).toBeVisible();
+  await page.getByRole("button", { name: "Resume journey" }).click();
+  await expect(page.locator("#pause-screen")).toBeHidden();
+});
