@@ -15,7 +15,6 @@ interface Chunk {
 }
 
 const sleeperGeometry = new THREE.BoxGeometry(3.6, 0.2, 0.55);
-const waterGeometry = new THREE.CircleGeometry(1, 28);
 const sleeperMaterial = new THREE.MeshLambertMaterial({ color: "#987359" });
 const railMaterial = new THREE.MeshLambertMaterial({
   color: "#6d7a7e", side: THREE.DoubleSide,
@@ -31,6 +30,9 @@ const sharedBeam = new THREE.BoxGeometry(1, 1, 1);
 const bridgeStone = new THREE.MeshLambertMaterial({ color: "#a0a69c", flatShading: true });
 const bridgeSteel = new THREE.MeshLambertMaterial({ color: "#5d7f82" });
 const tunnelRock = new THREE.MeshLambertMaterial({ color: "#827e77", flatShading: true });
+const tunnelInterior = new THREE.MeshLambertMaterial({ color: "#4e5559", side: THREE.DoubleSide, flatShading: true });
+const portalStone = new THREE.MeshLambertMaterial({ color: "#c2b9a2", flatShading: true });
+const tunnelLamp = new THREE.MeshBasicMaterial({ color: "#ffc581" });
 const soilColor = paint("#ad8f6f");
 const landmarkMaterials: Record<Biome, THREE.MeshLambertMaterial> = {
   highlands: new THREE.MeshLambertMaterial({ color: "#dcaf66", flatShading: true }),
@@ -128,6 +130,7 @@ export class WorldStream {
     this.createFarTerrain(chunk, start, end);
     this.createRail(chunk, start, end);
     this.createInfrastructure(chunk, start, end);
+    this.createTunnel(chunk, start, end);
     this.createLandmarks(chunk, start, end);
     this.createRiver(chunk, start, end);
     populateLandscape({ chunk, rail: this.rail, landscape: this.landscape },
@@ -137,6 +140,8 @@ export class WorldStream {
     }
     const lake = this.landscape.nearestLake(mid);
     if (lake && lake.s >= start && lake.s < end) this.createLake(chunk, lake);
+    const reservoir = this.landscape.underwaterLake(mid);
+    if (reservoir && reservoir.s >= start && reservoir.s < end) this.createLake(chunk, reservoir);
 
     this.scene.add(group);
     this.chunks.set(index, chunk);
@@ -246,9 +251,9 @@ export class WorldStream {
     if (crossing < start || crossing >= end || !this.landscape.river(crossing, 0)) return;
     const positions: number[] = [];
     const indices: number[] = [];
-    const steps = 48;
+    const steps = 70;
     for (let i = 0; i <= steps; i++) {
-      const offset = -195 + 390 * i / steps;
+      const offset = -1120 + 2240 * i / steps;
       const channel = this.landscape.river(crossing, offset);
       if (!channel) continue;
       for (const side of [-1, 1]) {
@@ -347,15 +352,86 @@ export class WorldStream {
         for (const side of [-3.1, 3.1]) {
           put(s, side, railY + .55, .16, 1.8, 18.6, bridgeSteel);
         }
-      } else if (feature === "tunnel") {
-        for (const side of [-4.0, 4.0]) {
-          put(s, side, railY + 3.1, 1.7, 7.5, 18.5, tunnelRock);
-        }
-        put(s, 0, railY + 6.55, 9.5, 1.5, 18.5, tunnelRock);
       } else if (feature === "cutting") {
         for (const side of [-7.2, 7.2]) {
           put(s, side, railY + 1.7, 1.25, 4.1, 18.5, tunnelRock);
         }
+      }
+    }
+  }
+
+  /** A single arched bore in the mountain, not a row of roofed boxes. */
+  private createTunnel(chunk: Chunk, start: number, end: number): void {
+    const r = 5.2;
+    const contour: Array<[number, number]> = [[-r, .20], [-r, 2.55]];
+    for (let j = 1; j < 12; j++) {
+      const angle = Math.PI - Math.PI * j / 12;
+      contour.push([Math.cos(angle) * r, 2.55 + Math.sin(angle) * r]);
+    }
+    contour.push([r, 2.55], [r, .20]);
+    const positions: number[] = [];
+    const indices: number[] = [];
+    const steps = 60;
+    const putContour = (s: number): void => {
+      for (const [offset, h] of contour) {
+        const p = this.local(chunk, s, offset);
+        p.y += h;
+        positions.push(p.x, p.y, p.z);
+      }
+    };
+    for (let i = 0; i < steps; i++) {
+      const s0 = start + i / steps * (end - start);
+      const s1 = start + (i + 1) / steps * (end - start);
+      if (this.rail.featureAt((s0 + s1) / 2) !== "tunnel" ||
+          Math.min(this.rail.featureStrength(s0), this.rail.featureStrength(s1)) < .13) continue;
+      const base = positions.length / 3;
+      putContour(s0);
+      putContour(s1);
+      for (let j = 0; j < contour.length - 1; j++) {
+        const a = base + j;
+        const b = base + contour.length + j;
+        indices.push(a, b, a + 1, a + 1, b, b + 1);
+      }
+    }
+    if (positions.length) {
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+      geometry.setIndex(indices);
+      geometry.computeVertexNormals();
+      const bore = new THREE.Mesh(geometry, tunnelInterior);
+      bore.name = "tunnel-arch";
+      chunk.group.add(bore);
+      chunk.geometries.push(geometry);
+    }
+
+    // Only the actual mouth gets an arched masonry ring; there is no exposed
+    // "second door" immediately behind it. Portals face along the track.
+    for (let s = start + 2; s < end; s += 4) {
+      const inside = this.rail.featureAt(s) === "tunnel" &&
+        this.rail.featureStrength(s) > .13;
+      const wasInside = this.rail.featureAt(s - 4) === "tunnel" &&
+        this.rail.featureStrength(s - 4) > .13;
+      if (inside === wasInside) continue;
+      const outline = contour.map(([offset, h]) => {
+        const p = this.local(chunk, s, offset);
+        p.y += h;
+        return p;
+      });
+      const curve = new THREE.CatmullRomCurve3(outline);
+      const geometry = new THREE.TubeGeometry(curve, 22, .43, 6, false);
+      const mouth = new THREE.Mesh(geometry, portalStone);
+      mouth.name = "tunnel-portal";
+      chunk.group.add(mouth);
+      chunk.geometries.push(geometry);
+    }
+    for (let s = start + 12; s < end; s += 30) {
+      if (this.rail.featureAt(s) !== "tunnel" || this.rail.featureStrength(s) < .75) continue;
+      for (const offset of [-4.8, 4.8]) {
+        const lamp = new THREE.Mesh(sharedBeam, tunnelLamp);
+        lamp.position.copy(this.local(chunk, s, offset));
+        lamp.position.y += 3.3;
+        lamp.scale.set(.15, .22, .5);
+        chunk.group.add(lamp);
       }
     }
   }
@@ -392,15 +468,27 @@ export class WorldStream {
     }
   }
 
-  private createLake(
-    chunk: Chunk, lake: ReturnType<Landscape["lake"]>,
-  ): void {
-    const location = this.local(chunk, lake.s, lake.offset);
-    location.y = lake.waterY - chunk.center.y - .05;
-    const water = new THREE.Mesh(waterGeometry, waterMaterial);
-    water.rotation.x = -Math.PI / 2;
-    water.scale.set(lake.widthRadius, lake.lengthRadius, 1);
-    water.position.copy(location);
-    chunk.group.add(water);
+  private createLake(chunk: Chunk, lake: ReturnType<Landscape["lake"]>): void {
+    // River-space oval fits the shore carved by Landscape even on curved rails.
+    const positions: number[] = [];
+    const segments = 48;
+    const center = this.local(chunk, lake.s, lake.offset);
+    center.y = lake.waterY - chunk.center.y - .05;
+    positions.push(center.x, center.y, center.z);
+    for (let j = 0; j <= segments; j++) {
+      const angle = j / segments * Math.PI * 2;
+      const p = this.local(chunk, lake.s + Math.cos(angle) * lake.lengthRadius,
+        lake.offset + Math.sin(angle) * lake.widthRadius);
+      p.y = lake.waterY - chunk.center.y - .05;
+      positions.push(p.x, p.y, p.z);
+    }
+    const indices: number[] = [];
+    for (let j = 1; j <= segments; j++) indices.push(0, j, j + 1);
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setIndex(indices);
+    geometry.computeVertexNormals();
+    chunk.group.add(new THREE.Mesh(geometry, waterMaterial));
+    chunk.geometries.push(geometry);
   }
 }

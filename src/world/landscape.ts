@@ -60,8 +60,8 @@ export class Landscape {
     if (feature === "bridge") {
       height -= 17 * strength * (1 - smooth(16, 62, away));
     } else if (feature === "tunnel") {
-      const bank = smooth(6, 22, away) * (1 - smooth(74, 120, away));
-      height += 19 * strength * bank;
+      const bank = smooth(5, 15, away) * (1 - smooth(95, 175, away));
+      height += 29 * strength * bank;
     } else if (feature === "cutting") {
       const bank = smooth(8, 27, away) * (1 - smooth(59, 96, away));
       height += 12 * strength * bank;
@@ -80,9 +80,17 @@ export class Landscape {
     if (lake) {
       const normalized = Math.hypot((s - lake.s) / lake.lengthRadius,
         (offset - lake.offset) / lake.widthRadius);
-      const carve = 1 - smooth(.76, 1.25, normalized);
+      const carve = 1 - smooth(.96, 1.28, normalized);
       height = THREE.MathUtils.lerp(height,
         Math.min(height, lake.waterY - 1.7), carve);
+    }
+    const reservoir = this.underwaterLake(s);
+    if (reservoir) {
+      const normalized = Math.hypot((s - reservoir.s) / reservoir.lengthRadius,
+        (offset - reservoir.offset) / reservoir.widthRadius);
+      const carve = 1 - smooth(.92, 1.23, normalized);
+      height = THREE.MathUtils.lerp(height,
+        Math.min(height, reservoir.waterY - 1.3), carve);
     }
     return height;
   }
@@ -120,6 +128,20 @@ export class Landscape {
     };
   }
 
+  /** Occasional small reservoirs above tunnel roofs, away from both portals. */
+  underwaterLake(s: number): ReturnType<Landscape["lake"]> | null {
+    const sector = Math.round((s - 750) / 1550);
+    const centerS = sector * 1550 + 750;
+    if (Math.abs(s - centerS) > 180 ||
+        this.rail.featureAt(centerS) !== "tunnel" ||
+        hash(this.rail.seed, sector, 925) >= .38) return null;
+    return {
+      s: centerS, offset: 0,
+      waterY: this.rail.point(centerS).y + 9.15,
+      lengthRadius: 142, widthRadius: 72,
+    };
+  }
+
   nearestLake(s: number): ReturnType<Landscape["lake"]> | null {
     const index = Math.round((s - 1100) / 3650);
     if (index < 0) return null;
@@ -131,8 +153,11 @@ export class Landscape {
     const river = this.river(s, offset);
     if (river && Math.abs(s - river.centerS) < river.halfWidth) return true;
     const lake = this.nearestLake(s);
-    return lake !== null && Math.hypot((s - lake.s) / lake.lengthRadius,
-      (offset - lake.offset) / lake.widthRadius) < 1;
+    if (lake && Math.hypot((s - lake.s) / lake.lengthRadius,
+      (offset - lake.offset) / lake.widthRadius) < 1) return true;
+    const reservoir = this.underwaterLake(s);
+    return reservoir !== null && Math.hypot((s - reservoir.s) / reservoir.lengthRadius,
+      offset / reservoir.widthRadius) < 1;
   }
 
   /** Tiny-scale noise for meadow color, rock outcrops and forest clusters. */

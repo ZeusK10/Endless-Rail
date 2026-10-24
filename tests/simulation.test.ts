@@ -7,6 +7,7 @@ import { ActivityManager } from "../src/game/activities";
 import { hash, CHUNK_LENGTH, biomeAt, biomeBoundary } from "../src/game/constants";
 import { populateVillage } from "../src/world/scenery";
 import { TrainView } from "../src/game/train-view";
+import { WorldStream } from "../src/world/world";
 import { SkySystem, daylightAt, formatTimeOfDay } from "../src/game/sky";
 import * as THREE from "three";
 
@@ -206,4 +207,33 @@ test("shorter variable biomes, route features and water stay reproducible", () =
     assert.ok(Number.isFinite(terrain.height(s, 840)));
   }
   assert.ok(terrain.isWater(1100, terrain.lake(0).offset));
+});
+
+test("tunnels create a real continuous arch within raised terrain", () => {
+  const rail = new RailPath(71425);
+  let s = 750;
+  for (let i = 0; i < 9 && rail.featureAt(s) !== "tunnel"; i++) s += 1550;
+  assert.equal(rail.featureAt(s), "tunnel");
+  const scene = new THREE.Scene();
+  const world = new WorldStream(scene, rail);
+  world.update(s);
+  const arches: THREE.Object3D[] = [];
+  scene.traverse(o => { if (o.name === "tunnel-arch") arches.push(o); });
+  assert.ok(arches.length > 0);
+  const railHeight = rail.point(s).y;
+  assert.ok(world.terrainHeight(s, 35) > railHeight + 5);
+  world.clear();
+});
+
+test("occasional underwater tunnels keep water above the arched bore", () => {
+  const rail = new RailPath(71425);
+  const terrain = new Landscape(rail);
+  let reservoir: ReturnType<Landscape["lake"]> | null = null;
+  for (let sector = 0; sector < 75 && !reservoir; sector++) {
+    reservoir = terrain.underwaterLake(sector * 1550 + 750);
+  }
+  assert.ok(reservoir, "there should be occasional submerged tunnel sections");
+  assert.equal(rail.featureAt(reservoir.s), "tunnel");
+  assert.ok(reservoir.waterY > rail.point(reservoir.s).y + 7.7);
+  assert.ok(terrain.isWater(reservoir.s, 0));
 });
