@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { RailPath } from "../sim/rail";
+import { Landscape } from "./landscape";
 import {
   BIOME_NAMES, CHUNK_LENGTH, FOLIAGE, biomeAt, biomeBlend, hash,
   type Biome,
@@ -48,6 +49,7 @@ const biomeGrass: Record<Biome, THREE.Color> = {
 
 export class WorldStream {
   private readonly chunks = new Map<number, Chunk>();
+  private readonly landscape: Landscape;
   private origin = new THREE.Vector3();
   private originDistance = Number.NaN;
   biomeName = BIOME_NAMES.highlands;
@@ -55,17 +57,14 @@ export class WorldStream {
   constructor(
     readonly scene: THREE.Scene,
     readonly rail: RailPath,
-  ) {}
+  ) { this.landscape = new Landscape(rail); }
 
   get originPoint(): THREE.Vector3 {
     return this.origin;
   }
 
   terrainHeight(s: number, offset: number): number {
-    const near = Math.max(0, Math.abs(offset) - 7);
-    const relief = Math.sin(s / 100 + offset / 24) *
-      Math.sin(s / 340 - offset / 65) * Math.min(near * 0.08, 9);
-    return this.rail.point(s).y - 0.48 + relief + near * 0.012;
+    return this.landscape.height(s, offset);
   }
 
   update(distance: number, speed = 0): void {
@@ -133,8 +132,8 @@ export class WorldStream {
   }
 
   private createTerrain(chunk: Chunk, start: number, end: number): void {
-    const rows = 20;
-    const columns = 16;
+    const rows = 32;
+    const columns = 32;
     const positions: number[] = [];
     const colors: number[] = [];
     const indices: number[] = [];
@@ -145,12 +144,16 @@ export class WorldStream {
       const base = biomeGrass[biome.from].clone()
         .lerp(biomeGrass[biome.to], biome.blend);
       for (let col = 0; col <= columns; col++) {
-        const offset = (col / columns - 0.5) * 240;
+        const offset = (col / columns - 0.5) * 380;
         const point = this.local(chunk, s, offset);
         point.y = this.terrainHeight(s, offset) - chunk.center.y;
         positions.push(point.x, point.y, point.z);
-        const variation = 0.94 + 0.09 * Math.sin(offset / 31 + s / 82);
-        colors.push(base.r * variation, base.g * variation, base.b * variation);
+        const variation = 0.76 + this.landscape.tint(s, offset) * 0.38;
+        const altitude = Math.max(0, point.y + chunk.center.y - this.rail.point(s).y);
+        const rock = THREE.MathUtils.clamp((altitude - 18) / 65, 0, 0.65);
+        const color = base.clone().multiplyScalar(variation)
+          .lerp(new THREE.Color("#a2a68c"), rock);
+        colors.push(color.r, color.g, color.b);
         if (row < rows && col < columns) {
           const a = row * (columns + 1) + col;
           const b = a + columns + 1;
@@ -318,13 +321,13 @@ export class WorldStream {
   }
 
   private createLake(chunk: Chunk, mid: number): void {
-    const s = mid + 25;
-    const offset = 67;
-    const location = this.local(chunk, s, offset);
-    location.y = this.terrainHeight(s, offset) - chunk.center.y + 0.12;
+    const index = Math.floor(mid / CHUNK_LENGTH);
+    const lake = this.landscape.lake(index);
+    const location = this.local(chunk, lake.s, lake.offset);
+    location.y = lake.waterY - chunk.center.y;
     const water = new THREE.Mesh(waterGeometry, waterMaterial);
     water.rotation.x = -Math.PI / 2;
-    water.scale.set(31, 19, 1);
+    water.scale.set(76, 58, 1);
     water.position.copy(location);
     chunk.group.add(water);
   }
