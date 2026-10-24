@@ -23,7 +23,7 @@ export function hash(seed: number, a: number, b = 0): number {
   return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
 }
 
-econst BIOME_SEQUENCE: Biome[] = ["highlands", "cherry", "lakeside"];
+const BIOME_SEQUENCE: Biome[] = ["highlands", "cherry", "lakeside"];
 const wrap = (n: number, count: number) => ((n % count) + count) % count;
 
 // Shared region borders are stable at any world distance (including reverse
