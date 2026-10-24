@@ -81,11 +81,20 @@ function addInstances(ctx: Context, mesh: THREE.InstancedMesh, count: number): v
   }
 }
 
+export function villageRegion(seed: number, index: number): { center: number; side: number } | null {
+  // One settlement spans three neighboring chunks. Its seed is independent
+  // of streaming order, so a reverse journey recreates the same village.
+  const region = Math.floor((index - 7) / 15);
+  const center = region * 15 + 7;
+  if (Math.abs(index - center) > 1) return null;
+  return { center, side: hash(seed, center, 99) > .5 ? 1 : -1 };
+}
+
 function isVillageClearing(seed: number, index: number, s: number, offset: number): boolean {
-  if (((index % 12) + 12) % 12 !== 7) return false;
+  const region = villageRegion(seed, index);
+  if (!region) return false;
   const mid = index * CHUNK_LENGTH + CHUNK_LENGTH / 2;
-  const side = hash(seed, index, 99) > 0.5 ? 1 : -1;
-  return Math.abs(s - mid) < 104 && Math.abs(offset - side * 58) < 47;
+  return Math.abs(s - mid) < 113 && Math.abs(offset - region.side * 84) < 79;
 }
 
 function isWater(ctx: Context, s: number, offset: number): boolean {
@@ -468,57 +477,257 @@ function makeHouse(biome: Biome, variant: number, scale: number): THREE.Group {
   return house;
 }
 
+// Outbuildings have distinct footprints, roof silhouettes and facades, with
+// cached shared detail so settlements never fall back to a generic cube.
+const outbuildingCache = new Map<string, THREE.Group>();
+function makeOutbuilding(biome: Biome, kind: "barn" | "shop" | "workshop"): THREE.Group {
+  const cacheKey = biome + ":" + kind;
+  const cached = outbuildingCache.get(cacheKey);
+  if (cached) return cached.clone();
+  const group = new THREE.Group();
+  const width = kind === "barn" ? 10.8 : kind === "workshop" ? 8.4 : 7.7;
+  const depth = kind === "barn" ? 12 : 8.2;
+  const height = kind === "barn" ? 6.3 : 4.2;
+  const main = kind === "barn" ? timber : walls[kind === "shop" ? 3 : 1];
+  block(group, stones, 0, .28, 0, width + .7, .56, depth + .7);
+  block(group, main, 0, height / 2 + .56, 0, width, height, depth);
+  for (const flank of [-1, 1]) {
+    const roof = block(group, kind === "barn" ? roofs[3] : roofs[2],
+      flank * width / 4, height + 1.13, 0,
+      width * .57, .28, depth + 1.35);
+    roof.rotation.z = -flank * .39;
+    block(group, trim, flank * width * .32, 2.8, -depth / 2 - .14,
+      1.45, 1.6, .21);
+    block(group, windows, flank * width * .32, 2.8, -depth / 2 - .29,
+      1.24, 1.35, .08);
+  }
+  block(group, doors, 0, 2.15, -depth / 2 - .16,
+    kind === "barn" ? 3.9 : 2.1, 3.9, .2);
+  if (kind === "shop") {
+    block(group, roofs[4], 0, 3.72, -depth / 2 - 1.2, width * .78, .16, 2.6);
+    block(group, trim, 0, 4.4, -depth / 2 - .21, width * .7, .76, .17);
+  } else if (kind === "workshop") {
+    block(group, stones, 2.8, height + 2.15, 1.5, .85, 3.9, .9);
+    block(group, roofs[0], 2.8, height + 4.15, 1.5, 1.05, .3, 1.1);
+  } else {
+    for (let plank = -2; plank <= 2; plank++) {
+      block(group, trim, plank * .68, 2.15, -depth / 2 - .31,
+        .075, 3.45, .08);
+    }
+  }
+  outbuildingCache.set(cacheKey, group);
+  return group.clone();
+}
+
 export function populateVillage(ctx: Context, index: number, mid: number): void {
-  const seed = ctx.rail.seed;
-  const biome = biomeAt(mid);
-  const side = hash(seed, index, 99) > 0.5 ? 1 : -1;
-  const count = 7 + Math.floor(hash(seed, index, 3) * 5);
-  for (let i = 0; i < count; i++) {
-    const row = i % 2;
-    const col = Math.floor(i / 2);
-    const s = mid - 83 + col * 30 + (hash(seed ^ 0x3b15e, index, i) - 0.5) * 24;
-    const offset = side * (33 + row * 41 + hash(seed ^ 0x941e5, index, i) * 18);
-    const house = makeHouse(biome, i, 0.68 + hash(seed + 6, index, i) * 0.45);
-    house.position.copy(basePoint(ctx, s, offset));
-    house.rotation.y = Math.atan2(-ctx.rail.tangent(s).x, -ctx.rail.tangent(s).z) +
-      (side < 0 ? Math.PI : 0) + (hash(seed ^ 0x861aa, index, i) - .5) * .44;
-    ctx.chunk.group.add(house);
-    // Short garden paths run from each doorway towards the village lane.
-    const path = new THREE.Mesh(reusableBox, paths);
-    path.scale.set(2.1, 0.12, 5);
-    path.position.copy(basePoint(ctx, s, offset - side * 6));
-    path.position.y += 0.1;
-    path.rotation.y = house.rotation.y;
-    ctx.chunk.group.add(path);
+  const region = villageRegion(ctx.rail.seed, index);
+  if (!region) return;
+  const seed = ctx.rail.seed, side = region.side;
+  const villageSeed = region.center;
+  const numberOfBuildings = 6 + Math.floor(hash(seed, villageSeed, index + 33) * 3);
+  const placed: Array<{ s: number; offset: number }> = [];
+  const roadOffset = (s: number): number =>
+    side * (53 + Math.sin(s / 78 + hash(seed, villageSeed, 404) * 6) * 9);
 
+  // A connected, curved rural road follows the settlement through all three
+  // chunks. Paths and yards connect each home to this shared artery.
+  for (let roadS = mid - CHUNK_LENGTH / 2 + 5; roadS < mid + CHUNK_LENGTH / 2; roadS += 13) {
+    const where = roadOffset(roadS);
+    if (isWater(ctx, roadS, where)) continue;
+    const pos = basePoint(ctx, roadS, where);
+    const road = new THREE.Mesh(reusableBox, paths);
+    road.position.copy(pos);
+    road.position.y += .1;
+    road.scale.set(6.7, .18, 13.9);
+    road.rotation.y = Math.atan2(-ctx.rail.tangent(roadS).x,
+      -ctx.rail.tangent(roadS).z);
+    ctx.chunk.group.add(road);
+  }
+
+  for (let i = 0; i < numberOfBuildings; i++) {
+    let s = mid, offset = side * 90;
+    let found = false;
+    for (let attempt = 0; attempt < 14; attempt++) {
+      const key = i * 29 + attempt;
+      s = mid - 103 + hash(seed ^ 0x3b15e, index, key) * 206;
+      offset = side * (41 + hash(seed ^ 0x941e5, index, key) * 111);
+      if (isWater(ctx, s, offset)) continue;
+      const slope = Math.abs(ctx.landscape.height(s, offset + 4) -
+        ctx.landscape.height(s, offset - 4));
+      if (slope > 5.4) continue;
+      if (placed.some(p => Math.hypot(s - p.s, offset - p.offset) < 15)) continue;
+      found = true;
+      break;
+    }
+    if (!found) continue;
+    placed.push({ s, offset });
+    const style = i === 0 ? "barn" : i === 3 ? "shop" :
+      i === 5 && index === region.center ? "workshop" : null;
+    const building = style
+      ? makeOutbuilding(biomeAt(s), style)
+      : makeHouse(biomeAt(s), i + index * 3,
+        .73 + hash(seed + 6, index, i) * .39);
+    building.position.copy(basePoint(ctx, s, offset));
+    building.rotation.y = Math.atan2(-ctx.rail.tangent(s).x, -ctx.rail.tangent(s).z) +
+      (side < 0 ? Math.PI : 0) + (hash(seed ^ 0x861aa, index, i) - .5) * .52;
+    ctx.chunk.group.add(building);
+
+    const street = roadOffset(s);
+    const length = Math.abs(offset - street);
+    if (length > 9) {
+      for (let j = 0; j < Math.floor(length / 7); j++) {
+        const spot = street + side * (j + .5) * length / Math.floor(length / 7);
+        if (isWater(ctx, s, spot)) continue;
+        const at = basePoint(ctx, s, spot);
+        const path = new THREE.Mesh(reusableBox, paths);
+        path.position.copy(at);
+        path.position.y += .08;
+        path.scale.set(2.1, .12, length / Math.floor(length / 7) + .1);
+        path.rotation.y = Math.atan2(-ctx.rail.tangent(s).x,
+          -ctx.rail.tangent(s).z) + Math.PI / 2;
+        ctx.chunk.group.add(path);
+      }
+    }
     if (i % 3 === 0) {
-      // Individual vegetable plots and gardens make each hamlet feel lived in.
-      const plot = basePoint(ctx, s + 8, offset + side * 9);
-      block(ctx.chunk.group, soil, plot.x, plot.y + .08, plot.z, 5.8, .16, 8.4);
-      for (let bed = -1; bed <= 1; bed++) {
-        block(ctx.chunk.group, field,
-          plot.x + bed * 1.55, plot.y + .19, plot.z,
-          .75, .16, 7.4);
+      const gardenS = Math.min(mid + 111, s + 11);
+      const gardenOffset = offset + side * 8;
+      if (!isWater(ctx, gardenS, gardenOffset)) {
+        const plot = basePoint(ctx, gardenS, gardenOffset);
+        block(ctx.chunk.group, soil, plot.x, plot.y + .08, plot.z, 7.0, .16, 9.2);
+        for (let bed = -1; bed <= 1; bed++) {
+          block(ctx.chunk.group, field, plot.x + bed * 1.75,
+            plot.y + .19, plot.z, .9, .16, 7.8);
+        }
+      }
+    }
+    if (i % 2 === 0) {
+      for (const x of [-3.4, 3.4]) {
+        const at = basePoint(ctx, s + 6, offset + x);
+        block(ctx.chunk.group, fence, at.x, at.y + .6, at.z, .16, 1.2, .16);
       }
     }
   }
+}
 
-  // A shared unpaved lane and small fences tie individual houses together.
-  for (let j = 0; j < 7; j++) {
-    const s = mid - 85 + j * 28;
-    const pos = basePoint(ctx, s, side * 53);
-    const lane = new THREE.Mesh(reusableBox, paths);
-    lane.scale.set(5.6, 0.16, 30);
-    lane.position.copy(pos);
-    lane.position.y += 0.04;
-    lane.rotation.y = Math.atan2(-ctx.rail.tangent(s).x, -ctx.rail.tangent(s).z);
-    ctx.chunk.group.add(lane);
-    if (j % 2 === 0) {
-      for (const edge of [side * 30, side * 86]) {
-        const post = basePoint(ctx, s, edge);
-        block(ctx.chunk.group, fence,
-          post.x, post.y + 0.7, post.z, 0.18, 1.4, 0.18);
+const animalMaterials: Record<string, THREE.MeshLambertMaterial> = {
+  deer: lambert("#a77551"), sheep: lambert("#e1ddcb"),
+  horse: lambert("#805e43"), bird: lambert("#647984"),
+  hoof: lambert("#544739"), pale: lambert("#d9bb90"),
+};
+const faunaCache = new Map<string, THREE.Group>();
+
+function wildlifePrototype(kind: "deer" | "sheep" | "horse" | "bird"): THREE.Group {
+  const cached = faunaCache.get(kind);
+  if (cached) return cached;
+  const root = new THREE.Group();
+  const fur = animalMaterials[kind], hoof = animalMaterials.hoof;
+  const put = (material: THREE.Material, x: number, y: number, z: number,
+    sx: number, sy: number, sz: number): void => {
+    block(root, material, x, y, z, sx, sy, sz);
+  };
+  if (kind === "bird") {
+    put(fur, 0, 0, 0, .55, .38, 1.1);
+    put(fur, -.8, .03, .1, 1.6, .10, .62);
+    put(fur, .8, .03, .1, 1.6, .10, .62);
+    put(hoof, 0, .02, -.68, .24, .12, .36);
+  } else {
+    const size = kind === "horse" ? 1.36 : kind === "deer" ? 1.05 : .87;
+    const bodyLength = kind === "sheep" ? 2.3 : 2.75;
+    put(fur, 0, 1.93 * size, 0, 1.12 * size, 1.38 * size, bodyLength * size);
+    for (const x of [-.41, .41]) {
+      for (const z of [-.92, .92]) {
+        put(fur, x * size, .89 * size, z * size, .27 * size, 1.68 * size, .32 * size);
+        put(hoof, x * size, .12 * size, z * size,
+          .35 * size, .24 * size, .38 * size);
       }
     }
+    put(fur, 0, 2.69 * size, -1.04 * size, .72 * size, 1.42 * size, .72 * size);
+    put(fur, 0, 3.43 * size, -1.42 * size, .77 * size, .64 * size, 1.15 * size);
+    put(animalMaterials.pale, 0, 3.23 * size, -1.91 * size,
+      .62 * size, .35 * size, .5 * size);
+    for (const x of [-.23, .23]) {
+      put(fur, x * size, 3.93 * size, -1.53 * size,
+        .22 * size, .4 * size, .18 * size);
+    }
+    if (kind === "deer") {
+      for (const x of [-.24, .24]) {
+        put(animalMaterials.pale, x * size, 4.29 * size, -1.48 * size,
+          .12 * size, .95 * size, .12 * size);
+        put(animalMaterials.pale, x * 1.9 * size, 4.55 * size, -1.48 * size,
+          .51 * size, .10 * size, .12 * size);
+      }
+    } else if (kind === "sheep") {
+      for (const x of [-.33, 0, .33]) for (const z of [-.55, 0, .55]) {
+        const wool = new THREE.Mesh(new THREE.IcosahedronGeometry(.51, 0), fur);
+        wool.position.set(x * size, 2.39 * size, z * size);
+        root.add(wool);
+      }
+    } else {
+      put(hoof, 0, 2.9 * size, 1.48 * size, .3 * size, .27 * size, .85 * size);
+    }
   }
+  // Merge geometry by material once; individual animated creatures take only
+  // a handful of draw calls regardless of component count.
+  root.updateMatrixWorld(true);
+  const parts = new Map<THREE.Material, THREE.BufferGeometry[]>();
+  root.traverse(object => {
+    if (!(object instanceof THREE.Mesh)) return;
+    const material = object.material as THREE.Material;
+    const geometry = object.geometry.index ? object.geometry.toNonIndexed() : object.geometry.clone();
+    geometry.applyMatrix4(object.matrixWorld);
+    const group = parts.get(material) ?? [];
+    group.push(geometry);
+    parts.set(material, group);
+  });
+  const merged = new THREE.Group();
+  for (const [material, pieces] of parts) {
+    const geometry = pieces.length > 1 ? mergeGeometries(pieces, false) : pieces[0];
+    if (!geometry) throw new Error("Unable to combine wildlife geometry");
+    merged.add(new THREE.Mesh(geometry, material));
+    if (pieces.length > 1) pieces.forEach(piece => piece.dispose());
+  }
+  faunaCache.set(kind, merged);
+  return merged;
+}
+
+/** Chunk-seeded lightweight fauna, far enough from rails, houses and water. */
+export function populateWildlife(
+  ctx: Context, index: number, start: number, end: number, densityScale = 1,
+): THREE.Object3D[] {
+  const animals: THREE.Object3D[] = [];
+  const candidates = Math.max(1, Math.round((4 + hash(ctx.rail.seed, index, 804) * 4) * densityScale));
+  const palette: Array<"deer" | "sheep" | "horse" | "bird"> =
+    biomeAt((start + end) / 2) === "highlands"
+      ? ["deer", "sheep", "horse", "bird"]
+      : biomeAt((start + end) / 2) === "cherry"
+        ? ["deer", "deer", "bird", "sheep"]
+        : ["sheep", "horse", "bird", "bird"];
+  for (let i = 0; i < candidates; i++) {
+    const rand = (salt: number) =>
+      hash(ctx.rail.seed ^ Math.imul(salt, 0x45d9f3b), index, i);
+    const s = start + 12 + rand(808) * (end - start - 24);
+    const offset = (rand(810) > .5 ? 1 : -1) * (32 + rand(811) * 139);
+    if (isWater(ctx, s, offset) ||
+        isVillageClearing(ctx.rail.seed, index, s, offset)) continue;
+    const grade = Math.abs(ctx.landscape.height(s, offset + 3) -
+      ctx.landscape.height(s, offset - 3));
+    if (grade > 6) continue;
+    const kind = palette[Math.floor(rand(812) * palette.length)];
+    const creature = wildlifePrototype(kind).clone();
+    const base = basePoint(ctx, s, offset);
+    const flying = kind === "bird";
+    base.y += flying ? 9 + rand(813) * 11 : 0;
+    creature.position.copy(base);
+    creature.scale.setScalar(flying ? .8 + rand(814) * .35 :
+      .72 + rand(814) * .37);
+    creature.rotation.y = rand(815) * Math.PI * 2;
+    creature.userData = {
+      baseY: base.y, baseX: base.x, baseZ: base.z,
+      phase: rand(816) * Math.PI * 2, flying,
+      speed: .36 + rand(817) * .55, angle: creature.rotation.y,
+    };
+    ctx.chunk.group.add(creature);
+    animals.push(creature);
+  }
+  return animals;
 }

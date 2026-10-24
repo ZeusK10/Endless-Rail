@@ -5,7 +5,7 @@ import { TrainSimulation } from "../src/sim/train";
 import { Landscape } from "../src/world/landscape";
 import { ActivityManager } from "../src/game/activities";
 import { hash, CHUNK_LENGTH, biomeAt, biomeBoundary } from "../src/game/constants";
-import { populateVillage } from "../src/world/scenery";
+import { populateVillage, populateWildlife, villageRegion } from "../src/world/scenery";
 import { TrainView } from "../src/game/train-view";
 import { WorldStream } from "../src/world/world";
 import { avoidTerrain, minimumCameraY } from "../src/game/camera-rig";
@@ -89,28 +89,50 @@ test("scenery seed salts decorrelate placement coordinates", () => {
   assert.ok(Math.abs(covariance / Math.sqrt(varianceX*varianceY)) < .16);
 });
 
-test("village houses are detailed and share cached render geometry", () => {
+test("settlements span multiple chunks with architectural detail", () => {
   const rail = new RailPath(76120);
   const landscape = new Landscape(rail);
-  const createVillage = () => {
+  const createVillage = (index: number) => {
     const chunk = {
       group: new THREE.Group(), center: new THREE.Vector3(),
       instances: [] as THREE.InstancedMesh[],
     };
-    populateVillage({ chunk, rail, landscape }, 7, 7 * CHUNK_LENGTH + CHUNK_LENGTH / 2);
+    populateVillage({ chunk, rail, landscape },
+      index, index * CHUNK_LENGTH + CHUNK_LENGTH / 2);
     return chunk.group;
   };
-  const a = createVillage(), b = createVillage();
-  const housesA = a.children.filter(item => item instanceof THREE.Group);
-  const housesB = b.children.filter(item => item instanceof THREE.Group);
-  assert.ok(housesA.length >= 7);
-  assert.equal(housesA.length, housesB.length);
-  const first = housesA[0] as THREE.Group;
-  const repeat = housesB[0] as THREE.Group;
-  assert.ok(first.children.length >= 8 && first.children.length < 30);
-  const pieces = first.children as THREE.Mesh[];
-  assert.ok(pieces.some(mesh => mesh.geometry.getAttribute("position").count > 600));
-  assert.equal(pieces[0].geometry, (repeat.children[0] as THREE.Mesh).geometry);
+  const groups = [6, 7, 8].map(index => createVillage(index));
+  assert.equal(villageRegion(rail.seed, 5), null);
+  assert.ok(villageRegion(rail.seed, 6) && villageRegion(rail.seed, 8));
+  const counts = groups.map(group => group.children.filter(item => item instanceof THREE.Group).length);
+  assert.ok(counts.every(count => count >= 3), "each village chunk has distinct structures");
+  assert.ok(counts.reduce((a, b) => a + b, 0) >= 12, "settlement has enough structures");
+  const again = createVillage(7);
+  const a = groups[1].children.filter(item => item instanceof THREE.Group) as THREE.Group[];
+  const b = again.children.filter(item => item instanceof THREE.Group) as THREE.Group[];
+  assert.equal(a.length, b.length);
+  const detailed = a.find(item => item.children.some(part =>
+    part instanceof THREE.Mesh && part.geometry.getAttribute("position").count > 600));
+  assert.ok(detailed, "at least one house has merged facade and roof details");
+  const match = b[a.indexOf(detailed)];
+  assert.equal((detailed.children[0] as THREE.Mesh).geometry,
+    (match.children[0] as THREE.Mesh).geometry);
+});
+
+test("seeded ground animals and birds avoid water and dense village paths", () => {
+  const rail = new RailPath(81124);
+  const landscape = new Landscape(rail);
+  const setup = () => ({
+    group: new THREE.Group(), center: rail.point(120), instances: [] as THREE.InstancedMesh[],
+  });
+  const a = setup(), b = setup();
+  const first = populateWildlife({ chunk: a, rail, landscape }, 0, 0, CHUNK_LENGTH);
+  const second = populateWildlife({ chunk: b, rail, landscape }, 0, 0, CHUNK_LENGTH);
+  assert.equal(first.length, second.length);
+  for (let i = 0; i < first.length; i++) {
+    assert.deepEqual(first[i].position.toArray(), second[i].position.toArray());
+    assert.ok(first[i].children.length <= 4, "wildlife geometry is draw-call friendly");
+  }
 });
 
 test("diesel and steam emit bounded, world-space exhaust; electric stays clean", () => {

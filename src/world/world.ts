@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { RailPath } from "../sim/rail";
 import { Landscape } from "./landscape";
-import { populateLandscape, populateVillage } from "./scenery";
+import { populateLandscape, populateVillage, populateWildlife, villageRegion } from "./scenery";
 import {
   BIOME_NAMES, CHUNK_LENGTH, biomeAt, biomeBlend,
   type Biome,
@@ -12,6 +12,7 @@ interface Chunk {
   center: THREE.Vector3;
   geometries: THREE.BufferGeometry[];
   instances: THREE.InstancedMesh[];
+  wildlife: THREE.Object3D[];
 }
 
 const sleeperGeometry = new THREE.BoxGeometry(3.6, 0.2, 0.55);
@@ -59,6 +60,25 @@ export class WorldStream {
     readonly scene: THREE.Scene,
     readonly rail: RailPath,
   ) { this.landscape = new Landscape(rail); }
+
+  /** Animate only streamed wildlife, with no retained objects off-screen. */
+  animateWildlife(seconds: number): void {
+    for (const chunk of this.chunks.values()) {
+      for (const creature of chunk.wildlife) {
+        const data = creature.userData;
+        const wave = seconds * (data.speed as number) + (data.phase as number);
+        creature.position.y = (data.baseY as number) + Math.sin(wave * 2) *
+          (data.flying ? 1.4 : .075);
+        if (data.flying) {
+          creature.position.x = (data.baseX as number) + Math.cos(wave) * 7;
+          creature.position.z = (data.baseZ as number) + Math.sin(wave) * 5;
+          creature.rotation.y = (data.angle as number) + wave * .14;
+        } else {
+          creature.rotation.y = (data.angle as number) + Math.sin(wave) * .14;
+        }
+      }
+    }
+  }
 
   setDensity(scale: number): void {
     const value = THREE.MathUtils.clamp(scale, 0.45, 1.2);
@@ -123,7 +143,7 @@ export class WorldStream {
     const mid = (start + end) / 2;
     const center = this.rail.point(mid);
     const group = new THREE.Group();
-    const chunk: Chunk = { group, center, geometries: [], instances: [] };
+    const chunk: Chunk = { group, center, geometries: [], instances: [], wildlife: [] };
     group.position.copy(center).sub(this.origin);
 
     this.createTerrain(chunk, start, end);
@@ -135,9 +155,12 @@ export class WorldStream {
     this.createRiver(chunk, start, end);
     populateLandscape({ chunk, rail: this.rail, landscape: this.landscape },
       index, start, end, this.densityScale);
-    if (((index % 12) + 12) % 12 === 7) {
+    if (villageRegion(this.rail.seed, index)) {
       populateVillage({ chunk, rail: this.rail, landscape: this.landscape }, index, mid);
     }
+    chunk.wildlife.push(...populateWildlife(
+      { chunk, rail: this.rail, landscape: this.landscape }, index, start, end,
+      this.densityScale));
     const lake = this.landscape.nearestLake(mid);
     if (lake && lake.s >= start && lake.s < end) this.createLake(chunk, lake);
     const reservoir = this.landscape.underwaterLake(mid);

@@ -584,5 +584,6 @@ renderer.setAnimationLoop((time) => {
     lastHudUpdate = time;
     updateInterface();
   }
+  if (playing && !paused) world.animateWildlife(time / 1000);
   renderer.render(scene, camera);
 });
