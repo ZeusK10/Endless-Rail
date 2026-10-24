@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { biomeAt, FOLIAGE, hash, CHUNK_LENGTH, type Biome } from "../game/constants";
 import { RailPath } from "../sim/rail";
 import { Landscape } from "./landscape";
@@ -258,7 +259,19 @@ function block(
   return mesh;
 }
 
-function makeHouse(biome: Biome, variant: number, scale: number): THREE.Group {
+// House geometry is authored in simple low-poly pieces, then merged once per
+// biome/variant. A full village stays detailed without a draw call for every
+// pane, tile, beam or chimney stone, even after chunks are streamed repeatedly.
+const roofRidge = lambert("#ddd4bd");
+const shutter = lambert("#5e7168");
+const roofEdge = lambert("#4d5156");
+const windowGlow = lambert("#efce92");
+const gardenGreen = lambert("#63894e");
+const flowerPink = lambert("#d78999");
+const flowerGold = lambert("#e2b95a");
+const houseCache = new Map<string, THREE.Group>();
+
+function houseDetailPrototype(biome: Biome, variant: number): THREE.Group {
   const house = new THREE.Group();
   const wide = biome === "cherry" ? 6.2 : 4.9 + (variant % 3) * 0.6;
   const depth = biome === "lakeside" ? 7.3 : 5.8;
@@ -266,52 +279,194 @@ function makeHouse(biome: Biome, variant: number, scale: number): THREE.Group {
   const rise = biome === "cherry" ? 1.45 : 2.05;
   const wall = walls[(variant + (biome === "cherry" ? 2 : 0)) % walls.length];
   const roof = roofs[(variant + (biome === "lakeside" ? 1 : 0)) % roofs.length];
-  block(house, stones, 0, 0.32, 0, wide + 0.65, 0.64, depth + 0.7);
-  block(house, wall, 0, h / 2 + 0.64, 0, wide, h, depth);
-  block(house, timber, 0, 0.76, 0, wide + 0.12, 0.23, depth + 0.12);
+  const glazing = variant % 4 === 0 ? windowGlow : windows;
+  const foundation = 0.64;
+  const front = -depth / 2;
+  const wallTop = h + foundation;
 
-  const roofLength = Math.hypot(wide / 2 + 0.52, rise) + 0.2;
-  const roofAngle = Math.atan2(rise, wide / 2 + 0.52);
-  for (const side of [-1, 1]) {
-    const slope = block(house, roof, side * wide / 4, h + 0.65 + rise / 2,
-      0, roofLength, 0.28, depth + (biome === "cherry" ? 1.9 : 0.95));
-    slope.rotation.z = -side * roofAngle;
+  block(house, stones, 0, 0.32, 0, wide + 0.65, 0.64, depth + 0.7);
+  block(house, wall, 0, h / 2 + foundation, 0, wide, h, depth);
+  block(house, timber, 0, 0.76, 0, wide + 0.12, 0.23, depth + 0.12);
+  // Stone corner quoins and irregular foundation blocks give the walls depth.
+  for (const x of [-wide / 2 + 0.23, wide / 2 - 0.23]) {
+    for (const z of [front + 0.15, -front - 0.15]) {
+      for (let j = 0; j < 4; j++) {
+        block(house, j % 2 ? stones : trim, x, 1.07 + j * 0.93, z,
+          0.44, 0.24, 0.48);
+      }
+    }
   }
-  // Doors and framed windows make the houses legible from a moving train.
-  block(house, doors, 0, 1.67, -depth / 2 - 0.09, 1.25, 2.05, 0.14);
-  block(house, trim, 0, 2.76, -depth / 2 - 0.14, 1.5, 0.16, 0.16);
+
+  // A triangular gable closes the facade under the pitched roof.
+  const gableOutline = new THREE.Shape();
+  gableOutline.moveTo(-wide / 2, wallTop - 0.04);
+  gableOutline.lineTo(0, wallTop + rise - 0.14);
+  gableOutline.lineTo(wide / 2, wallTop - 0.04);
+  gableOutline.closePath();
+  const gable = new THREE.Mesh(new THREE.ExtrudeGeometry(gableOutline, {
+    depth: 0.18, bevelEnabled: false, steps: 1, curveSegments: 1,
+  }), wall);
+  gable.position.z = front + 0.02;
+  house.add(gable);
+
+  const roofLength = Math.hypot(wide / 2 + 0.6, rise) + 0.3;
+  const roofAngle = Math.atan2(rise, wide / 2 + 0.6);
+  const roofDepth = depth + (biome === "cherry" ? 2.0 : 1.2);
+  for (const side of [-1, 1]) {
+    const section = new THREE.Group();
+    section.position.set(side * wide / 4, wallTop + rise / 2, 0);
+    section.rotation.z = -side * roofAngle;
+    house.add(section);
+    block(section, roof, 0, 0, 0, roofLength, 0.26, roofDepth);
+    block(section, roofEdge, 0, -0.13, front - (roofDepth - depth) / 2,
+      roofLength + 0.1, 0.09, 0.12);
+    // Slim horizontal tile courses catch light as the train passes.
+    for (let j = 0; j < 5; j++) {
+      const tileZ = -roofDepth / 2 + 0.5 + j * ((roofDepth - 1) / 4);
+      block(section, roofRidge, 0, 0.16, tileZ, roofLength + 0.02, 0.035, 0.045);
+    }
+  }
+  block(house, roofEdge, 0, wallTop + rise + 0.025, 0, 0.19, 0.2, roofDepth + 0.12);
+  // Little attic vent in the gable, outlined by exterior joinery.
+  block(house, trim, 0, wallTop + rise * 0.38, front - 0.13, 0.73, 0.66, 0.08);
+  block(house, glazing, 0, wallTop + rise * 0.38, front - 0.20, 0.51, 0.44, 0.07);
+  block(house, timber, 0, wallTop + rise * 0.38, front - 0.27, 0.08, 0.48, 0.045);
+
+  // Front entrance: a recessed frame, divided door, handle, threshold, steps.
+  block(house, trim, 0, 1.68, front - 0.085, 1.48, 2.19, 0.2);
+  block(house, doors, 0, 1.67, front - 0.21, 1.23, 2.02, 0.12);
+  for (const x of [-0.34, 0.34]) {
+    block(house, timber, x, 1.81, front - 0.29, 0.37, 1.01, 0.06);
+    block(house, trim, x, 2.32, front - 0.31, 0.39, 0.05, 0.05);
+  }
+  block(house, roofRidge, 0.42, 1.62, front - 0.34, 0.09, 0.1, 0.12);
+  for (let i = 0; i < 2; i++) {
+    block(house, stones, 0, 0.28 - i * 0.11, front - 0.8 - i * 0.5,
+      1.95 + i * 0.55, 0.22, 0.52);
+  }
+
+  const windowAt = (x: number, y: number, z: number, sizeX: number, sizeY: number) => {
+    block(house, trim, x, y, z, sizeX + 0.22, sizeY + 0.22, 0.18);
+    block(house, glazing, x, y, z - 0.115, sizeX, sizeY, 0.1);
+    block(house, timber, x, y, z - 0.19, 0.07, sizeY + 0.04, 0.07);
+    block(house, timber, x, y, z - 0.195, sizeX + 0.03, 0.08, 0.08);
+    block(house, stones, x, y - sizeY / 2 - 0.11, z - 0.16,
+      sizeX + 0.33, 0.15, 0.38);
+    // Shutters are folded open, framing rather than hiding the glass.
+    for (const flank of [-1, 1]) {
+      block(house, shutter, x + flank * (sizeX / 2 + 0.20), y, z - 0.1,
+        0.29, sizeY + 0.16, 0.09);
+    }
+  };
   for (const x of [-wide * 0.32, wide * 0.32]) {
-    block(house, trim, x, 2.55, -depth / 2 - 0.1, 1.18, 1.5, 0.15);
-    block(house, windows, x, 2.55, -depth / 2 - 0.2, 0.87, 1.13, 0.1);
-    block(house, trim, x, 2.55, -depth / 2 - 0.27, 0.085, 1.15, 0.09);
-    block(house, trim, x, 2.55, -depth / 2 - 0.27, 0.9, 0.09, 0.09);
+    windowAt(x, 2.55, front - 0.07, 0.95, 1.24);
+    // Flower box with broad leaves and contrasting blossoms under each window.
+    const boxZ = front - 0.43;
+    block(house, timber, x, 1.81, boxZ, 1.33, 0.26, 0.34);
+    for (let p = -1; p <= 1; p++) {
+      block(house, gardenGreen, x + p * 0.33, 2.03, boxZ, 0.24, 0.31, 0.19);
+      block(house, (p + variant) % 2 ? flowerPink : flowerGold,
+        x + p * 0.33, 2.22, boxZ - 0.02, 0.15, 0.16, 0.15);
+    }
   }
+
+  // Side facades get real glazing, mullions and wooden sill details.
   for (const side of [-1, 1]) {
-    block(house, trim, side * (wide / 2 + 0.05), 2.55, 0.65,
-      0.12, 1.44, 1.25);
-    block(house, windows, side * (wide / 2 + 0.14), 2.55, 0.65,
-      0.1, 1.1, 1.03);
+    const x = side * (wide / 2 + 0.11);
+    for (const z of [-depth * 0.22, depth * 0.25]) {
+      block(house, trim, x, 2.62, z, 0.20, 1.42, 1.29);
+      block(house, glazing, x + side * 0.09, 2.62, z, 0.09, 1.14, 1.03);
+      block(house, timber, x + side * 0.15, 2.62, z, 0.08, 1.18, 0.07);
+      block(house, timber, x + side * 0.16, 2.62, z, 0.08, 0.07, 1.05);
+      block(house, stones, x, 1.88, z, 0.39, 0.13, 1.36);
+    }
+    // Rain gutter and downpipe also make the silhouette less box-like.
+    block(house, roofEdge, side * (wide / 2 + 0.34), wallTop + 0.08, 0,
+      0.16, 0.13, roofDepth - 0.25);
+    block(house, roofEdge, side * (wide / 2 + 0.22), 2.6, depth / 2 - 0.18,
+      0.12, 3.9, 0.13);
   }
 
   if (biome === "highlands") {
-    block(house, stones, wide * 0.26, h + 1.15, depth * 0.14, 0.76, 2.7, 0.9);
-    for (const x of [-wide / 2 + 0.25, wide / 2 - 0.25]) {
-      block(house, timber, x, 2.55, -depth / 2 - 0.13, 0.22, 3.55, 0.22);
+    // Stone chimney with lip, farmhouse beams and small protective porch.
+    const chimneyX = wide * 0.28;
+    block(house, stones, chimneyX, wallTop + 0.88, depth * 0.16, 0.96, 2.76, 0.91);
+    block(house, roofEdge, chimneyX, wallTop + 2.33, depth * 0.16, 1.16, 0.25, 1.10);
+    block(house, darkChimney, chimneyX, wallTop + 2.47, depth * 0.16, 0.63, 0.06, 0.58);
+    for (const x of [-wide / 2 + 0.24, wide / 2 - 0.24]) {
+      block(house, timber, x, 2.53, front - 0.14, 0.22, 3.5, 0.22);
+    }
+    block(house, timber, 0, wallTop - 0.20, front - 0.16, wide - 0.44, 0.21, 0.18);
+    block(house, roof, 0, 3.13, front - 1.02, 2.40, 0.17, 1.9);
+    for (const x of [-1.05, 1.05]) {
+      block(house, timber, x, 1.84, front - 1.78, 0.13, 2.45, 0.13);
     }
   } else if (biome === "cherry") {
-    // Deep overhanging roof and veranda evoke a blossom-valley hamlet.
-    block(house, paths, 0, 0.55, -depth / 2 - 1.1, wide + 1.1, 0.28, 2.3);
-    for (const x of [-wide / 2, wide / 2]) {
-      block(house, timber, x, 1.9, -depth / 2 - 1.8, 0.2, 2.6, 0.2);
+    // Veranda, lanterns, lattice screens and curved-looking layered eaves.
+    block(house, paths, 0, 0.56, front - 1.2, wide + 1.15, 0.26, 2.7);
+    for (const x of [-wide / 2 + 0.05, 0, wide / 2 - 0.05]) {
+      block(house, timber, x, 1.89, front - 2.34, 0.19, 2.54, 0.19);
+    }
+    block(house, timber, 0, 3.15, front - 2.34, wide + 0.35, 0.16, 0.18);
+    for (const x of [-2.22, 2.22]) {
+      block(house, windowGlow, x, 2.65, front - 2.39, 0.27, 0.43, 0.27);
+      block(house, roofEdge, x, 2.93, front - 2.39, 0.37, 0.12, 0.36);
+    }
+    for (const x of [-wide * 0.35, wide * 0.35]) {
+      for (let slat = 0; slat < 3; slat++) {
+        block(house, timber, x - 0.32 + slat * 0.32, 1.16,
+          front - 2.36, 0.055, 0.78, 0.08);
+      }
     }
   } else {
-    block(house, timber, 0, 0.78, -depth / 2 - 1.45, wide + 1.5, 0.26, 2.9);
-    for (const x of [-wide / 2 - 0.45, 0, wide / 2 + 0.45]) {
-      block(house, trim, x, 1.55, -depth / 2 - 2.6, 0.14, 1.35, 0.14);
+    // Lakeside homes sit above wet ground on a deck with porch rails.
+    block(house, timber, 0, 0.8, front - 1.55, wide + 1.65, 0.26, 3.15);
+    for (const x of [-wide / 2 - 0.55, 0, wide / 2 + 0.55]) {
+      block(house, trim, x, 1.55, front - 2.94, 0.14, 1.42, 0.15);
     }
-    block(house, trim, 0, 2.12, -depth / 2 - 2.6, wide + 1.1, 0.15, 0.16);
+    block(house, trim, 0, 2.13, front - 2.94, wide + 1.35, 0.13, 0.17);
+    for (const x of [-wide / 2 + 0.2, wide / 2 - 0.2]) {
+      block(house, timber, x, 2.25, front - 2.10, 0.19, 2.85, 0.19);
+    }
+    block(house, roof, 0, 3.74, front - 1.69, wide + 0.95, 0.17, 3.3);
+    for (const z of [-1.1, 1.0]) {
+      block(house, roofEdge, wide / 2 + 0.3, 2.16, z, 0.16, 0.3, 0.2);
+    }
   }
 
+  house.updateMatrixWorld(true);
+  const geometries = new Map<THREE.Material, THREE.BufferGeometry[]>();
+  house.traverse(object => {
+    if (!(object instanceof THREE.Mesh)) return;
+    const material = object.material as THREE.Material;
+    const original = object.geometry as THREE.BufferGeometry;
+    // Extruded gables are non-indexed; normalize boxes before combining.
+    const geometry = original.index ? original.toNonIndexed() : original.clone();
+    geometry.applyMatrix4(object.matrixWorld);
+    const list = geometries.get(material) ?? [];
+    list.push(geometry);
+    geometries.set(material, list);
+  });
+  const mergedHouse = new THREE.Group();
+  for (const [material, parts] of geometries) {
+    const geometry = parts.length === 1 ? parts[0] : mergeGeometries(parts, false);
+    if (!geometry) throw new Error("Unable to merge village house geometry");
+    mergedHouse.add(new THREE.Mesh(geometry, material));
+    if (parts.length > 1) parts.forEach(part => part.dispose());
+  }
+  return mergedHouse;
+}
+
+const darkChimney = lambert("#31383b");
+
+function makeHouse(biome: Biome, variant: number, scale: number): THREE.Group {
+  const key = biome + ":" + variant;
+  let prototype = houseCache.get(key);
+  if (!prototype) {
+    prototype = houseDetailPrototype(biome, variant);
+    houseCache.set(key, prototype);
+  }
+  const house = prototype.clone();
   house.scale.setScalar(scale);
   return house;
 }
