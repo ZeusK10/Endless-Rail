@@ -20,8 +20,24 @@ export class TrainSimulation {
   derailmentEnabled = false;
   derailed = false;
   traveled = 0;
+  /** Dimensionless warning level; actual failure is disabled by default. */
+  derailmentRisk = 0;
+  private randomState: number;
 
-  constructor(readonly rail: RailPath) {}
+  constructor(readonly rail: RailPath) {
+    this.randomState = rail.seed ^ 0x9e3779b9;
+  }
+
+  /** Probability of derailment if current conditions persist for ten seconds. */
+  get derailmentChance10s(): number {
+    const hazard = 0.5 * Math.pow(this.derailmentRisk, 4);
+    return 1 - Math.exp(-hazard * 10);
+  }
+
+  private random(): number {
+    this.randomState = (Math.imul(this.randomState, 1664525) + 1013904223) >>> 0;
+    return this.randomState / 4294967296;
+  }
 
   get speedKmh(): number {
     return Math.abs(this.speed) * 3.6;
@@ -71,6 +87,7 @@ export class TrainSimulation {
     this.throttle = 0;
     this.brake = 1;
     this.mode = "manual";
+    this.derailmentRisk = 0;
   }
 
   update(dt: number): void {
@@ -108,12 +125,24 @@ export class TrainSimulation {
       this.speed = next;
     }
 
-    // Arcade-simulation stability check; full rigid-body derailment is omitted.
+    // Probabilistic but seeded failure model. Curves, excessive speed and
+    // aggressive braking raise risk gradually instead of an instant cliff.
+    // The base path has broad bends, so use relative curve sharpness, not
+    // only raw lateral G, to make the warning meaningful in this toy world.
+    const speedStress = clamp((this.speedKmh - 65) / 60, 0, 1);
+    const curveStress = clamp(curvature / 0.00036, 0, 1);
+    const brakeStress = this.brake > 0.65
+      ? 0.16 * clamp((this.speedKmh - 55) / 70, 0, 1) : 0;
+    this.derailmentRisk = clamp(
+      0.04 * speedStress +
+      0.86 * Math.pow(speedStress, 1.4) * curveStress + brakeStress, 0, 1);
+    const hazardPerSecond = 0.5 * Math.pow(this.derailmentRisk, 4);
     if (this.derailmentEnabled &&
-      this.speed * this.speed * curvature > 7.5) {
+      this.random() < 1 - Math.exp(-hazardPerSecond * dt)) {
       this.derailed = true;
       this.speed = 0;
       this.throttle = 0;
+      this.derailmentRisk = 0;
       return;
     }
 
