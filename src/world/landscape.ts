@@ -120,27 +120,24 @@ export class Landscape {
     const s = index * 3650 + 1100;
     const biome = biomeAt(s);
     const size = biome === "lakeside" ? 1.18 : biome === "cherry" ? .78 : 1;
+    const widthRadius = (112 + hash(this.rail.seed, index, 994) * 30) * size;
+    // Keep a dry natural embankment between open rails and the lake shore.
+    // The former center offset was narrower than the lake radius and flooded
+    // ordinary railway sections without any corresponding bridge.
     const offset = (hash(this.rail.seed, index, 991) > .5 ? 1 : -1) *
-      (95 + hash(this.rail.seed, index, 992) * 28);
+      (widthRadius + 42 + hash(this.rail.seed, index, 992) * 22);
     return {
       s, offset, waterY: this.rail.point(s).y - 5.1,
       lengthRadius: (190 + hash(this.rail.seed, index, 993) * 48) * size,
-      widthRadius: (112 + hash(this.rail.seed, index, 994) * 30) * size,
+      widthRadius,
     };
   }
 
-  /** Occasional small reservoirs above tunnel roofs, away from both portals. */
-  underwaterLake(s: number): ReturnType<Landscape["lake"]> | null {
-    const sector = Math.round((s - 750) / 1550);
-    const centerS = sector * 1550 + 750;
-    if (Math.abs(s - centerS) > 180 ||
-        this.rail.featureAt(centerS) !== "tunnel" ||
-        hash(this.rail.seed, sector, 925) >= .38) return null;
-    return {
-      s: centerS, offset: 0,
-      waterY: this.rail.point(centerS).y + 12.7,
-      lengthRadius: 142, widthRadius: 72,
-    };
+  /** Submerged tunnels are deferred until a watertight excavation mesh exists.
+   * A flat reservoir over the old overburden leaked through tunnel portals.
+   */
+  underwaterLake(_s: number): ReturnType<Landscape["lake"]> | null {
+    return null;
   }
 
   nearestLake(s: number): ReturnType<Landscape["lake"]> | null {

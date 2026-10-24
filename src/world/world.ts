@@ -17,8 +17,32 @@ interface Chunk {
 
 const sleeperGeometry = new THREE.BoxGeometry(3.6, 0.2, 0.55);
 const fastenerGeometry = new THREE.BoxGeometry(.21, .075, .38);
-const speedSignGeometry = new THREE.CylinderGeometry(.72, .72, .12, 12);
-const speedSignMaterial = new THREE.MeshLambertMaterial({ color: "#eee8d8" });
+const signMaterials = new Map<number, THREE.SpriteMaterial>();
+function speedSignMaterial(limit: number): THREE.SpriteMaterial {
+  const key = Math.round(limit / 5) * 5;
+  const existing = signMaterials.get(key);
+  if (existing) return existing;
+  if (typeof document === "undefined") {
+    const material = new THREE.SpriteMaterial({ color: "#fffdf2" });
+    signMaterials.set(key, material);
+    return material;
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 128;
+  const ctx = canvas.getContext("2d")!;
+  ctx.beginPath();
+  ctx.arc(64, 64, 50, 0, Math.PI * 2);
+  ctx.fillStyle = "#fffdf2"; ctx.fill();
+  ctx.lineWidth = 12; ctx.strokeStyle = "#bd4840"; ctx.stroke();
+  ctx.fillStyle = "#24363c"; ctx.textAlign = "center";
+  ctx.textBaseline = "middle"; ctx.font = "bold 46px system-ui";
+  ctx.fillText(String(key), 64, 65);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
+  signMaterials.set(key, material);
+  return material;
+}
 const sleeperMaterial = new THREE.MeshLambertMaterial({ color: "#987359" });
 const railMaterial = new THREE.MeshLambertMaterial({
   color: "#6d7a7e", side: THREE.DoubleSide,
@@ -33,7 +57,9 @@ const paint = (color: string) => new THREE.Color(color);
 const sharedBeam = new THREE.BoxGeometry(1, 1, 1);
 const bridgeStone = new THREE.MeshLambertMaterial({ color: "#a0a69c", flatShading: true });
 const bridgeSteel = new THREE.MeshLambertMaterial({ color: "#5d7f82" });
-const crossingRoad = new THREE.MeshLambertMaterial({ color: "#9b9080" });
+const crossingRoad = new THREE.MeshLambertMaterial({
+  color: "#8d7154", vertexColors: true, side: THREE.DoubleSide, flatShading: true,
+});
 const crossingPaint = new THREE.MeshLambertMaterial({ color: "#dfd5b6" });
 const crossingWarning = new THREE.MeshLambertMaterial({ color: "#ba5147" });
 const tunnelRock = new THREE.MeshLambertMaterial({ color: "#827e77", flatShading: true });
@@ -41,6 +67,8 @@ const tunnelInterior = new THREE.MeshLambertMaterial({ color: "#4e5559", side: T
 const portalStone = new THREE.MeshLambertMaterial({ color: "#c2b9a2", flatShading: true });
 const tunnelLamp = new THREE.MeshBasicMaterial({ color: "#ffc581" });
 const soilColor = paint("#ad8f6f");
+const alpineRock = paint("#747a7e");
+const alpineSnow = paint("#e9f0ec");
 const landmarkMaterials: Record<Biome, THREE.MeshLambertMaterial> = {
   highlands: new THREE.MeshLambertMaterial({ color: "#dcaf66", flatShading: true }),
   cherry: new THREE.MeshLambertMaterial({ color: "#e3a0bd", flatShading: true }),
@@ -208,11 +236,14 @@ export class WorldStream {
         const slope = Math.abs(this.terrainHeight(s, offset + 4) -
           this.terrainHeight(s, offset - 4)) / 8;
         const bareSoil = THREE.MathUtils.clamp((slope - .12) * 1.15, 0, .48);
-        const rock = THREE.MathUtils.clamp((altitude - 16) / 60 +
-          (slope - .5) * .6, 0, .76);
+        const rock = THREE.MathUtils.clamp((altitude - 19) / 58 +
+          (slope - .35) * .72, 0, .91);
+        const snow = THREE.MathUtils.smoothstep(
+          altitude + (this.landscape.tint(s, offset) - .5) * 24, 74, 120);
         const color = base.clone().multiplyScalar(variation)
           .lerp(soilColor, bareSoil)
-          .lerp(new THREE.Color("#92968d"), rock);
+          .lerp(alpineRock, rock)
+          .lerp(alpineSnow, snow);
         colors.push(color.r, color.g, color.b);
         if (row < rows && col < columns) {
           const a = row * (columns + 1) + col;
@@ -241,7 +272,7 @@ export class WorldStream {
     const positions: number[] = [];
     const colors: number[] = [];
     const indices: number[] = [];
-    const rows = 22, columns = 14;
+    const rows = 34, columns = 30;
     for (const direction of [-1, 1]) {
       const baseIndex = positions.length / 3;
       for (let row = 0; row <= rows; row++) {
@@ -255,9 +286,17 @@ export class WorldStream {
           const altitude = this.landscape.height(s, offset);
           p.y = altitude - chunk.center.y - 0.14;
           positions.push(p.x, p.y, p.z);
-          const rockiness = THREE.MathUtils.clamp((altitude - this.rail.point(s).y - 20) / 160, 0, .8);
-          const color = ground.clone().multiplyScalar(.83)
-            .lerp(new THREE.Color("#89928b"), rockiness);
+          const relief = altitude - this.rail.point(s).y;
+          const slope = Math.abs(this.landscape.height(s, offset + 11) -
+            this.landscape.height(s, offset - 11)) / 22;
+          const rockiness = THREE.MathUtils.clamp((relief - 24) / 72 +
+            (slope - .36) * .48, 0, .95);
+          const snow = THREE.MathUtils.smoothstep(
+            relief + (this.landscape.tint(s, offset) - .5) * 28, 77, 131);
+          const color = ground.clone().multiplyScalar(.82 +
+              this.landscape.tint(s, offset) * .13)
+            .lerp(alpineRock, rockiness)
+            .lerp(alpineSnow, snow);
           colors.push(color.r, color.g, color.b);
           if (row < rows && col < columns) {
             const a = baseIndex + row * (columns + 1) + col;
@@ -289,8 +328,8 @@ export class WorldStream {
       if (!channel) continue;
       for (const side of [-1, 1]) {
         const p = this.local(chunk,
-          channel.centerS + side * channel.halfWidth, offset);
-        p.y = channel.waterY - chunk.center.y - .11;
+          channel.centerS + side * channel.halfWidth * .72, offset);
+        p.y = channel.waterY - chunk.center.y - .28;
         positions.push(p.x, p.y, p.z);
       }
       if (i < steps) {
@@ -422,10 +461,12 @@ export class WorldStream {
       pole.position.y += 1.55;
       pole.scale.set(.15, 2.8, .15);
       chunk.group.add(pole);
-      const sign = new THREE.Mesh(speedSignGeometry, speedSignMaterial);
-      sign.rotation.x = Math.PI / 2;
+      const sign = new THREE.Sprite(speedSignMaterial(
+        this.rail.speedLimitAt(speedMarker)));
       sign.position.copy(at);
-      sign.position.y += 2.8;
+      sign.position.y += 2.95;
+      sign.scale.set(2.0, 2.0, 1);
+      sign.name = "readable-speed-sign";
       chunk.group.add(sign);
     }
   }
@@ -438,16 +479,33 @@ export class WorldStream {
     root.name = "rail-crossing";
     const tangent = this.rail.tangent(s);
     const angle = Math.atan2(-tangent.x, -tangent.z);
-    for (let offset = -20; offset <= 20; offset += 8) {
-      const at = this.local(chunk, s, offset);
-      at.y = this.terrainHeight(s, offset) - chunk.center.y + .13;
-      if (Math.abs(offset) <= 4) at.y = this.rail.point(s).y - chunk.center.y + .02;
-      const road = new THREE.Mesh(sharedBeam, crossingRoad);
-      road.position.copy(at);
-      road.scale.set(8.8, .18, 5.8);
-      road.rotation.y = angle;
-      root.add(road);
+    // A continuous terrain-conforming dirt ribbon; no elevated concrete slabs.
+    const roadVertices: number[] = [], roadColors: number[] = [], roadIndices: number[] = [];
+    for (let i = 0; i <= 36; i++) {
+      const offset = -36 + i * 2;
+      for (const side of [-1, 1]) {
+        const roadS = s + side * 3.4;
+        const at = this.local(chunk, roadS, offset);
+        at.y = this.terrainHeight(roadS, offset) - chunk.center.y + .10;
+        if (Math.abs(offset) < 4.5) at.y = this.rail.point(roadS).y - chunk.center.y - .43;
+        roadVertices.push(at.x, at.y, at.z);
+        const tone = .88 + ((i * 13 + (side + 1) * 7) % 9) * .013;
+        roadColors.push(tone, tone * .94, tone * .83);
+      }
+      if (i < 36) {
+        const a = i * 2;
+        roadIndices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+      }
     }
+    const roadGeometry = new THREE.BufferGeometry();
+    roadGeometry.setAttribute("position", new THREE.Float32BufferAttribute(roadVertices, 3));
+    roadGeometry.setAttribute("color", new THREE.Float32BufferAttribute(roadColors, 3));
+    roadGeometry.setIndex(roadIndices);
+    roadGeometry.computeVertexNormals();
+    const road = new THREE.Mesh(roadGeometry, crossingRoad);
+    road.name = "mud-crossing";
+    root.add(road);
+    chunk.geometries.push(roadGeometry);
     for (const side of [-1, 1]) {
       const position = this.local(chunk, s - 6, side * 8.5);
       position.y = this.terrainHeight(s - 6, side * 8.5) - chunk.center.y;
@@ -506,11 +564,8 @@ export class WorldStream {
         for (const side of [-3.1, 3.1]) {
           put(s, side, railY + .55, .16, 1.8, 18.6, bridgeSteel);
         }
-      } else if (feature === "cutting") {
-        for (const side of [-7.2, 7.2]) {
-          put(s, side, railY + 1.7, 1.25, 4.1, 18.5, tunnelRock);
-        }
       }
+      // Cuttings use excavated earth and rock banks, never boxy wall strips.
     }
   }
 
@@ -577,6 +632,29 @@ export class WorldStream {
       mouth.name = "tunnel-portal";
       chunk.group.add(mouth);
       chunk.geometries.push(geometry);
+
+      // A rock face around the *opening*, built as an annular strip.
+      // It joins the overhead hill to the portal without capping the bore.
+      const facePoints: number[] = [], faceIndices: number[] = [];
+      for (const [offset, h] of contour) {
+        const inner = this.local(chunk, s, offset);
+        inner.y += h;
+        const outer = this.local(chunk, s, offset * 2.9);
+        outer.y += Math.max(-1.2, h * 2.05 - 2.3);
+        facePoints.push(inner.x, inner.y, inner.z, outer.x, outer.y, outer.z);
+      }
+      for (let j = 0; j < contour.length - 1; j++) {
+        const a = j * 2;
+        faceIndices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+      }
+      const faceGeometry = new THREE.BufferGeometry();
+      faceGeometry.setAttribute("position", new THREE.Float32BufferAttribute(facePoints, 3));
+      faceGeometry.setIndex(faceIndices);
+      faceGeometry.computeVertexNormals();
+      const face = new THREE.Mesh(faceGeometry, tunnelRock);
+      face.name = "tunnel-rock-face";
+      chunk.group.add(face);
+      chunk.geometries.push(faceGeometry);
     }
     for (let s = start + 12; s < end; s += 30) {
       if (this.rail.featureAt(s) !== "tunnel" || this.rail.featureStrength(s) < .75) continue;
@@ -604,18 +682,16 @@ export class WorldStream {
       const s1 = start + (end - start) * (i + 1) / steps;
       const mid = (s0 + s1) / 2;
       if (this.rail.featureAt(mid) !== "tunnel" ||
-        this.rail.featureStrength(mid) < .28) continue;
+        this.rail.featureStrength(mid) < .13) continue;
       const base = vertices.length / 3;
       for (const s of [s0, s1]) {
         const strength = this.rail.featureStrength(s);
-        const coverage = THREE.MathUtils.smoothstep(strength, .20, .78);
+        const coverage = strength >= .13 ? 1 : THREE.MathUtils.smoothstep(strength, .07, .13);
         for (const offset of offsets) {
           const away = Math.abs(offset);
           const shoulder = 1 - THREE.MathUtils.smoothstep(away, 7, 53);
           const naturalY = this.landscape.height(s, offset);
-          const reservoir = this.landscape.underwaterLake(s);
-          const ridgeY = reservoir ? reservoir.waterY - 2.0 :
-            this.rail.point(s).y + 14.5 + 2.3 * Math.sin(s / 82);
+          const ridgeY = this.rail.point(s).y + 14.5 + 2.3 * Math.sin(s / 82);
           const coverY = naturalY + Math.max(0, ridgeY - naturalY) *
             coverage * shoulder;
           const p = this.local(chunk, s, offset);
@@ -680,13 +756,13 @@ export class WorldStream {
     const positions: number[] = [];
     const segments = 48;
     const center = this.local(chunk, lake.s, lake.offset);
-    center.y = lake.waterY - chunk.center.y - .05;
+    center.y = lake.waterY - chunk.center.y - .26;
     positions.push(center.x, center.y, center.z);
     for (let j = 0; j <= segments; j++) {
       const angle = j / segments * Math.PI * 2;
-      const p = this.local(chunk, lake.s + Math.cos(angle) * lake.lengthRadius,
-        lake.offset + Math.sin(angle) * lake.widthRadius);
-      p.y = lake.waterY - chunk.center.y - .05;
+      const p = this.local(chunk, lake.s + Math.cos(angle) * lake.lengthRadius * .91,
+        lake.offset + Math.sin(angle) * lake.widthRadius * .91);
+      p.y = lake.waterY - chunk.center.y - .26;
       positions.push(p.x, p.y, p.z);
     }
     const indices: number[] = [];

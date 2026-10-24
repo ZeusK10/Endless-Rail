@@ -253,17 +253,24 @@ test("tunnels create a real continuous arch within raised terrain", () => {
   world.clear();
 });
 
-test("occasional underwater tunnels keep water above the arched bore", () => {
+test("lakes preserve a dry rail corridor and tunnels do not leak water", () => {
   const rail = new RailPath(71425);
   const terrain = new Landscape(rail);
-  let reservoir: ReturnType<Landscape["lake"]> | null = null;
-  for (let sector = 0; sector < 75 && !reservoir; sector++) {
-    reservoir = terrain.underwaterLake(sector * 1550 + 750);
+  for (let i = 0; i < 10; i++) {
+    const lake = terrain.lake(i);
+    assert.ok(Math.abs(lake.offset) > lake.widthRadius + 40,
+      "lake shore must stay outside ordinary track");
+    assert.equal(terrain.isWater(lake.s, 0), false);
+    assert.ok(terrain.height(lake.s, lake.offset) < lake.waterY,
+      "water must be inside a carved basin");
   }
-  assert.ok(reservoir, "there should be occasional submerged tunnel sections");
-  assert.equal(rail.featureAt(reservoir.s), "tunnel");
-  assert.ok(reservoir.waterY > rail.point(reservoir.s).y + 7.7);
-  assert.ok(terrain.isWater(reservoir.s, 0));
+  for (let sector = 0; sector < 75; sector++) {
+    const s = sector * 1550 + 750;
+    if (rail.featureAt(s) === "tunnel") {
+      assert.equal(terrain.underwaterLake(s), null,
+        "unsealed underwater sections stay disabled");
+    }
+  }
 });
 
 test("camera terrain sweep retracts and preserves safe clearance", () => {
