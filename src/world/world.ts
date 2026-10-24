@@ -66,6 +66,10 @@ const tunnelRock = new THREE.MeshLambertMaterial({ color: "#827e77", flatShading
 const tunnelInterior = new THREE.MeshLambertMaterial({ color: "#4e5559", side: THREE.DoubleSide, flatShading: true });
 const portalStone = new THREE.MeshLambertMaterial({ color: "#c2b9a2", flatShading: true });
 const tunnelLamp = new THREE.MeshBasicMaterial({ color: "#ffc581" });
+const tunnelFloorMaterial = new THREE.MeshLambertMaterial({
+  color: "#353737", side: THREE.DoubleSide,
+});
+const stationGlass = new THREE.MeshLambertMaterial({ color: "#6b9baa" });
 const stationWood = new THREE.MeshLambertMaterial({ color: "#957b5e" });
 const stationWall = new THREE.MeshLambertMaterial({ color: "#d9cec0" });
 const stationRoof = new THREE.MeshLambertMaterial({ color: "#658285" });
@@ -383,17 +387,19 @@ export class WorldStream {
       const offset = -680 + 1360 * i / steps;
       const channel = this.landscape.river(crossing, offset);
       if (!channel) continue;
+      const halfWidth = channel.halfWidth * (1 -
+        .96 * THREE.MathUtils.smoothstep(Math.abs(offset), 540, 680));
       for (const side of [-1, 1]) {
-        const at = this.local(chunk, channel.centerS + side * channel.halfWidth * .69, offset);
+        const at = this.local(chunk, channel.centerS + side * halfWidth * .69, offset);
         at.y = channel.waterY - chunk.center.y - .3;
         waterPositions.push(at.x, at.y, at.z);
-        const edge = this.local(chunk, channel.centerS + side * channel.halfWidth * 1.8, offset);
+        const edge = this.local(chunk, channel.centerS + side * halfWidth * 1.8, offset);
         // Fold banks down to the water and blend their outer lip into the
         // surrounding terrain; mesh faces remain contiguous along the stream.
         edge.y = this.landscape.height(channel.centerS +
-          side * channel.halfWidth * 1.8, offset) - chunk.center.y + .18;
+          side * halfWidth * 1.8, offset) - chunk.center.y + .18;
         const inner = this.local(chunk, channel.centerS +
-          side * channel.halfWidth * .72, offset);
+          side * halfWidth * .72, offset);
         inner.y = channel.waterY - chunk.center.y - .95;
         for (const point of [inner, edge]) {
           bankPositions.push(point.x, point.y, point.z);
@@ -701,9 +707,7 @@ export class WorldStream {
       floor.setAttribute("position", new THREE.Float32BufferAttribute(floorPositions, 3));
       floor.setIndex(floorIndices);
       floor.computeVertexNormals();
-      const bed = new THREE.Mesh(floor, new THREE.MeshLambertMaterial({
-        color: "#353737", side: THREE.DoubleSide,
-      }));
+      const bed = new THREE.Mesh(floor, tunnelFloorMaterial);
       bed.name = "dark-excavated-tunnel-floor";
       chunk.group.add(bed);
       chunk.geometries.push(floor);
@@ -896,7 +900,7 @@ export class WorldStream {
         station.add(ridge);
         chunk.geometries.push(ridge.geometry);
       } else {
-        const glass = new THREE.Mesh(sharedBeam, new THREE.MeshLambertMaterial({ color: "#6b9baa" }));
+        const glass = new THREE.Mesh(sharedBeam, stationGlass);
         glass.scale.set(4.5, 2.6, .11);
         glass.position.set(side * 7.1, 3.5, -18.55);
         station.add(glass);
