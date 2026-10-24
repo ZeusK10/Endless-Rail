@@ -16,6 +16,9 @@ interface Chunk {
 }
 
 const sleeperGeometry = new THREE.BoxGeometry(3.6, 0.2, 0.55);
+const fastenerGeometry = new THREE.BoxGeometry(.21, .075, .38);
+const speedSignGeometry = new THREE.CylinderGeometry(.72, .72, .12, 12);
+const speedSignMaterial = new THREE.MeshLambertMaterial({ color: "#eee8d8" });
 const sleeperMaterial = new THREE.MeshLambertMaterial({ color: "#987359" });
 const railMaterial = new THREE.MeshLambertMaterial({
   color: "#6d7a7e", side: THREE.DoubleSide,
@@ -299,53 +302,127 @@ export class WorldStream {
   }
 
   private createRail(chunk: Chunk, start: number, end: number): void {
-    const positions: number[] = [];
-    const indices: number[] = [];
     const steps = 80;
-    const railWidth = 0.16;
+    // A rail cross-section: base foot, thin vertical web, broad head.
+    // Sweep it along the spline instead of laying a flat painted strip.
+    const crossSection: Array<[number, number]> = [
+      [-.22, .09], [.22, .09], [.07, .145], [.07, .29],
+      [.142, .29], [.142, .38], [-.142, .38], [-.142, .29],
+      [-.07, .29], [-.07, .145],
+    ];
+    const vertices: number[] = [], indices: number[] = [];
     for (const lane of [-1.2, 1.2]) {
-      const base = positions.length / 3;
+      const base = vertices.length / 3;
       for (let i = 0; i <= steps; i++) {
         const s = start + i / steps * (end - start);
-        const left = this.local(chunk, s, lane - railWidth / 2);
-        const right = this.local(chunk, s, lane + railWidth / 2);
-        left.y += 0.23;
-        right.y += 0.23;
-        positions.push(left.x, left.y, left.z, right.x, right.y, right.z);
-        if (i < steps) {
-          const a = base + 2 * i;
-          indices.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+        for (const [offset, y] of crossSection) {
+          const at = this.local(chunk, s, lane + offset);
+          at.y += y;
+          vertices.push(at.x, at.y, at.z);
+        }
+      }
+      for (let i = 0; i < steps; i++) {
+        for (let edge = 0; edge < crossSection.length; edge++) {
+          const next = (edge + 1) % crossSection.length;
+          const a = base + i * crossSection.length + edge;
+          const b = base + (i + 1) * crossSection.length + edge;
+          indices.push(a, b, base + i * crossSection.length + next,
+            b, base + (i + 1) * crossSection.length + next,
+            base + i * crossSection.length + next);
         }
       }
     }
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position",
-      new THREE.Float32BufferAttribute(positions, 3));
-    geometry.setIndex(indices);
-    geometry.computeVertexNormals();
-    chunk.group.add(new THREE.Mesh(geometry, railMaterial));
-    chunk.geometries.push(geometry);
+    const railGeometry = new THREE.BufferGeometry();
+    railGeometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
+    railGeometry.setIndex(indices);
+    railGeometry.computeVertexNormals();
+    const profileMesh = new THREE.Mesh(railGeometry, railMaterial);
+    profileMesh.name = "rail-profile";
+    chunk.group.add(profileMesh);
+    chunk.geometries.push(railGeometry);
 
-    const count = Math.floor((end - start) / 3);
-    const sleepers = new THREE.InstancedMesh(
-      sleeperGeometry, sleeperMaterial, count);
+    // Ballast has irregular sloped shoulders and a gravel-like shaded surface.
+    // Its vertices join exactly at consecutive chunk boundaries.
+    const ballastOffsets = [-4.6, -3.95, -3.15, -.5, .5, 3.15, 3.95, 4.6];
+    const ballastPositions: number[] = [], ballastColors: number[] = [], ballastIndices: number[] = [];
+    const gravelTones = ["#aaa99e", "#86877f", "#bbb4a7", "#8f9088"];
+    for (let i = 0; i <= steps; i++) {
+      const s = start + i / steps * (end - start);
+      for (let j = 0; j < ballastOffsets.length; j++) {
+        const at = this.local(chunk, s, ballastOffsets[j]);
+        at.y += j === 0 || j === ballastOffsets.length - 1 ? -.46 :
+          j === 1 || j === ballastOffsets.length - 2 ? -.23 : .015;
+        ballastPositions.push(at.x, at.y, at.z);
+        const tone = new THREE.Color(gravelTones[Math.floor(
+          ((Math.sin(s * .37 + j * 17) + 1) * .5) * gravelTones.length) % gravelTones.length]);
+        ballastColors.push(tone.r, tone.g, tone.b);
+        if (i < steps && j < ballastOffsets.length - 1) {
+          const a = i * ballastOffsets.length + j;
+          const b = a + ballastOffsets.length;
+          ballastIndices.push(a, b, a + 1, a + 1, b, b + 1);
+        }
+      }
+    }
+    const ballast = new THREE.BufferGeometry();
+    ballast.setAttribute("position", new THREE.Float32BufferAttribute(ballastPositions, 3));
+    ballast.setAttribute("color", new THREE.Float32BufferAttribute(ballastColors, 3));
+    ballast.setIndex(ballastIndices);
+    ballast.computeVertexNormals();
+    const ballastMesh = new THREE.Mesh(ballast, groundMaterial);
+    ballastMesh.name = "gravel-ballast";
+    chunk.group.add(ballastMesh);
+    chunk.geometries.push(ballast);
+
+    const count = Math.floor((end - start) / 2.65);
+    const sleepers = new THREE.InstancedMesh(sleeperGeometry, sleeperMaterial, count);
+    const fasteners = new THREE.InstancedMesh(
+      fastenerGeometry, railMaterial, count * 4);
     const matrix = new THREE.Matrix4();
     const position = new THREE.Vector3();
     const rotation = new THREE.Quaternion();
     const scale = new THREE.Vector3(1, 1, 1);
+    const fastenerScale = new THREE.Vector3(1, 1, 1);
+    let fastenerCount = 0;
     for (let i = 0; i < count; i++) {
-      const s = start + i * 3;
-      position.copy(this.local(chunk, s));
-      position.y += 0.07;
+      const s = start + (i + .5) * (end - start) / count;
       const tangent = this.rail.tangent(s);
       rotation.setFromAxisAngle(
         new THREE.Vector3(0, 1, 0), Math.atan2(-tangent.x, -tangent.z));
+      position.copy(this.local(chunk, s));
+      position.y += .075;
       matrix.compose(position, rotation, scale);
       sleepers.setMatrixAt(i, matrix);
+      for (const lane of [-1.2, 1.2]) {
+        for (const side of [-.24, .24]) {
+          const at = this.local(chunk, s, lane + side);
+          at.y += .18;
+          matrix.compose(at, rotation, fastenerScale);
+          fasteners.setMatrixAt(fastenerCount++, matrix);
+        }
+      }
     }
+    sleepers.name = "sleepers";
+    fasteners.name = "fasteners";
     sleepers.instanceMatrix.needsUpdate = true;
-    chunk.group.add(sleepers);
-    chunk.instances.push(sleepers);
+    fasteners.instanceMatrix.needsUpdate = true;
+    chunk.group.add(sleepers, fasteners);
+    chunk.instances.push(sleepers, fasteners);
+
+    // Sparse speed markers, an intentional readable human-scale rail detail.
+    const speedMarker = Math.ceil(start / 520) * 520 + 36;
+    if (speedMarker >= start && speedMarker < end) {
+      const at = this.local(chunk, speedMarker, -5.5);
+      const pole = new THREE.Mesh(sharedBeam, bridgeSteel);
+      pole.position.copy(at);
+      pole.position.y += 1.55;
+      pole.scale.set(.15, 2.8, .15);
+      chunk.group.add(pole);
+      const sign = new THREE.Mesh(speedSignGeometry, speedSignMaterial);
+      sign.rotation.x = Math.PI / 2;
+      sign.position.copy(at);
+      sign.position.y += 2.8;
+      chunk.group.add(sign);
+    }
   }
 
   private createInfrastructure(chunk: Chunk, start: number, end: number): void {

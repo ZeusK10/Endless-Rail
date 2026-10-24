@@ -565,7 +565,7 @@ export function populateVillage(ctx: Context, index: number, mid: number): void 
       i === 5 && index === region.center ? "workshop" : null;
     const building = style
       ? makeOutbuilding(biomeAt(s), style)
-      : makeHouse(biomeAt(s), i + index * 3,
+      : makeHouse(biomeAt(s), ((i + index * 3) % 12 + 12) % 12,
         .73 + hash(seed + 6, index, i) * .39);
     building.position.copy(basePoint(ctx, s, offset));
     building.rotation.y = Math.atan2(-ctx.rail.tangent(s).x, -ctx.rail.tangent(s).z) +

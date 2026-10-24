@@ -273,3 +273,20 @@ test("camera terrain sweep retracts and preserves safe clearance", () => {
   assert.ok(safe.y >= minimumCameraY(safe, rail, world));
   world.clear();
 });
+
+test("rail uses shaped steel profiles, contiguous ballast and shared fasteners", () => {
+  const rail = new RailPath(4442);
+  const scene = new THREE.Scene();
+  const world = new WorldStream(scene, rail);
+  world.setDensity(.45);
+  world.setViewScale(.58);
+  world.update(0);
+  const profile = scene.getObjectByName("rail-profile") as THREE.Mesh;
+  const ballast = scene.getObjectByName("gravel-ballast") as THREE.Mesh;
+  const fasteners = scene.getObjectByName("fasteners") as THREE.InstancedMesh;
+  assert.ok(profile && ballast && fasteners);
+  assert.ok(profile.geometry.getAttribute("position").count >= 1000);
+  assert.ok(ballast.geometry.getAttribute("color").count > 500);
+  assert.ok(fasteners.count >= 250);
+  world.clear();
+});
