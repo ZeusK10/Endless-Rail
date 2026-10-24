@@ -84,7 +84,7 @@ function addInstances(ctx: Context, mesh: THREE.InstancedMesh, count: number): v
 export function villageRegion(seed: number, index: number): { center: number; side: number } | null {
   // One settlement spans three neighboring chunks. Its seed is independent
   // of streaming order, so a reverse journey recreates the same village.
-  const region = Math.floor((index - 7) / 15);
+  const region = Math.round((index - 7) / 15);
   const center = region * 15 + 7;
   if (Math.abs(index - center) > 1) return null;
   return { center, side: hash(seed, center, 99) > .5 ? 1 : -1 };
