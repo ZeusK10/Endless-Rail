@@ -17,8 +17,8 @@ function element<T extends HTMLElement>(id: string): T {
 const container = element<HTMLDivElement>("app");
 const scene = new THREE.Scene();
 scene.background = new THREE.Color("#c9e9ff");
-scene.fog = new THREE.Fog("#c9e9ff", 90, 230);
-const camera = new THREE.PerspectiveCamera(57, 1, 0.1, 400);
+scene.fog = new THREE.Fog("#c9e9ff", 170, 690);
+const camera = new THREE.PerspectiveCamera(62, 1, 0.1, 1100);
 const renderer = new THREE.WebGLRenderer({
   antialias: true, powerPreference: "high-performance",
 });
@@ -58,12 +58,22 @@ const achievementValue = element<HTMLElement>("achievement-value");
 const throttleValue = element<HTMLElement>("throttle-value");
 const brakeValue = element<HTMLElement>("brake-value");
 const recoverButton = element<HTMLButtonElement>("recover-button");
+const freeControls = element<HTMLElement>("free-controls");
+const cameraValue = element<HTMLElement>("camera-value");
+const controlHint = element<HTMLElement>("control-hint");
 
 let playing = false;
 let paused = false;
 let cameraMode = 0;
 let cameraYaw = 0;
 let cameraPitch = 0;
+let freeCamera = false;
+let freeYaw = 0;
+let freePitch = 0;
+const freePosition = new THREE.Vector3();
+const flyDirection = new THREE.Vector3();
+const flySide = new THREE.Vector3();
+const flyMovement = new THREE.Vector3();
 let lastTime = 0;
 let accumulator = 0;
 let quality = 1;
@@ -96,6 +106,7 @@ function start(): void {
   startScreen.hidden = true;
   hud.hidden = false;
   touchControls.hidden = false;
+  freeControls.hidden = true;
   pauseScreen.hidden = true;
   audio.start();
   lastTime = 0;
@@ -105,7 +116,8 @@ function setPause(value: boolean): void {
   if (!playing) return;
   paused = value;
   pauseScreen.hidden = !paused;
-  touchControls.hidden = paused;
+  touchControls.hidden = paused || freeCamera;
+  freeControls.hidden = paused || !freeCamera;
   if (!paused) audio.start();
 }
 
@@ -123,7 +135,47 @@ document.addEventListener("visibilitychange", () => {
 world.update(0);
 trainView.update(0, 0, 0, world.originPoint);
 
+function setFreeCamera(enabled: boolean): void {
+  if (enabled === freeCamera) return;
+  freeCamera = enabled;
+  if (enabled) {
+    freePosition.copy(camera.position).add(world.originPoint);
+    const gaze = new THREE.Vector3();
+    camera.getWorldDirection(gaze);
+    freeYaw = Math.atan2(-gaze.x, -gaze.z);
+    freePitch = Math.asin(THREE.MathUtils.clamp(gaze.y, -1, 1));
+  }
+  touchControls.hidden = paused || enabled;
+  freeControls.hidden = paused || !enabled;
+  cameraValue.textContent = enabled ? "FREE FLY" : "TRAIN VIEW";
+  controlHint.textContent = enabled
+    ? "FREE CAM · WASD move · Space/Shift altitude · Drag/right stick look · V exit"
+    : "W throttle · Q reduce · S brake · M mode · R/F direction · C views · V free cam · H horn · E activity";
+}
+
+function moveFreeCamera(input: ReturnType<Controls["read"]>, dt: number): void {
+  freeYaw -= input.cameraX * dt * 2 + input.pointerX * 0.004;
+  freePitch = THREE.MathUtils.clamp(
+    freePitch - input.cameraY * dt * 1.7 - input.pointerY * 0.004, -1.47, 1.47);
+  flyDirection.set(-Math.sin(freeYaw), 0, -Math.cos(freeYaw));
+  flySide.set(Math.cos(freeYaw), 0, -Math.sin(freeYaw));
+  flyMovement.copy(flyDirection).multiplyScalar(input.flyForward)
+    .addScaledVector(flySide, input.flyStrafe);
+  flyMovement.y = input.flyVertical;
+  if (flyMovement.lengthSq() > 1) flyMovement.normalize();
+  freePosition.addScaledVector(flyMovement, dt * (input.flyFast ? 80 : 28));
+}
+
 function updateCamera(dt: number): void {
+  if (freeCamera) {
+    camera.position.copy(freePosition).sub(world.originPoint);
+    flyDirection.set(
+      -Math.sin(freeYaw) * Math.cos(freePitch),
+      Math.sin(freePitch),
+      -Math.cos(freeYaw) * Math.cos(freePitch));
+    camera.lookAt(camera.position.clone().add(flyDirection));
+    return;
+  }
   const s = simulation.distance;
   const origin = world.originPoint;
   target.copy(rail.point(s)).sub(origin);
@@ -190,18 +242,28 @@ renderer.setAnimationLoop((time) => {
     if (input.reverse) simulation.setDirection(-1);
     if (input.forward) simulation.setDirection(1);
     if (input.lights) trainView.toggleLights();
-    if (input.camera) cameraMode = (cameraMode + 1) % 4;
+    if (input.freeCamera) setFreeCamera(!freeCamera);
+    if (input.camera) {
+      if (freeCamera) setFreeCamera(false);
+      else cameraMode = (cameraMode + 1) % 4;
+    }
     if (input.horn) {
       if (simulation.derailed) simulation.recover();
       else audio.horn();
     }
     if (input.activity) activities.activate(simulation.distance);
-    if (input.throttleUp) simulation.adjustThrottle(dt * 0.43);
-    if (input.throttleDown) simulation.adjustThrottle(-dt * 0.43);
-    simulation.applyBrake(input.brake);
-    cameraYaw += input.cameraX * dt * 1.5;
-    cameraPitch = THREE.MathUtils.clamp(
-      cameraPitch + input.cameraY * dt, -0.55, 1.1);
+    if (freeCamera) {
+      moveFreeCamera(input, dt);
+      // Keyboard navigation in free-fly mode must never brake the train.
+      simulation.applyBrake(0);
+    } else {
+      if (input.throttleUp) simulation.adjustThrottle(dt * 0.43);
+      if (input.throttleDown) simulation.adjustThrottle(-dt * 0.43);
+      simulation.applyBrake(input.brake);
+      cameraYaw += input.cameraX * dt * 1.5 + input.pointerX * 0.004;
+      cameraPitch = THREE.MathUtils.clamp(
+        cameraPitch + input.cameraY * dt + input.pointerY * 0.004, -0.55, 1.1);
+    }
 
     accumulator += dt;
     let iterations = 0;
@@ -214,7 +276,8 @@ renderer.setAnimationLoop((time) => {
       simulation.brake, simulation.mode);
   }
 
-  world.update(simulation.distance, simulation.speed);
+  world.update(simulation.distance, simulation.speed,
+    freeCamera ? -freePosition.z : undefined);
   trainView.update(simulation.distance, simulation.speed, dt, world.originPoint);
   updateCamera(Math.max(dt, 1 / 60));
   audio.update(simulation.speedKmh, !playing || paused);

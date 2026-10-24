@@ -1,3 +1,5 @@
+import * as THREE from "three";
+
 export interface InputFrame {
   throttleUp: boolean;
   throttleDown: boolean;
@@ -8,8 +10,15 @@ export interface InputFrame {
   horn: boolean;
   lights: boolean;
   camera: boolean;
+  freeCamera: boolean;
   cameraX: number;
   cameraY: number;
+  pointerX: number;
+  pointerY: number;
+  flyForward: number;
+  flyStrafe: number;
+  flyVertical: number;
+  flyFast: boolean;
   activity: boolean;
   pause: boolean;
 }
@@ -93,8 +102,17 @@ export class Controls {
       this.keys.has(key) || this.touch.has(touch);
     const pressed = (key: string, action: string, buttonIndex: number) =>
       this.edge(action, down(key, action) || button(buttonIndex) > 0.45);
-    const cameraX = stick(axis(2)) + this.deltaX * 0.016;
-    const cameraY = stick(axis(3)) + this.deltaY * 0.016;
+    const cameraX = stick(axis(2));
+    const cameraY = stick(axis(3));
+    const pointerX = this.deltaX;
+    const pointerY = this.deltaY;
+    const flyForward = (down("KeyW", "flyForward") ? 1 : 0) -
+      (down("KeyS", "flyBack") ? 1 : 0) - stick(axis(1));
+    const flyStrafe = (down("KeyD", "flyRight") ? 1 : 0) -
+      (down("KeyA", "flyLeft") ? 1 : 0) + stick(axis(0));
+    const flyVertical = (down("Space", "flyUp") ? 1 : 0) -
+      (down("ShiftLeft", "flyDown") || this.keys.has("ShiftRight") ? 1 : 0) +
+      (button(5) > 0.45 ? 1 : 0) - (button(4) > 0.45 ? 1 : 0);
     this.deltaX = 0;
     this.deltaY = 0;
 
@@ -113,8 +131,15 @@ export class Controls {
       lights: pressed("KeyL", "lights", 1),
       activity: pressed("KeyE", "activity", 2),
       camera: pressed("KeyC", "camera", 3),
+      freeCamera: pressed("KeyV", "freeCamera", 8),
       cameraX,
       cameraY,
+      pointerX,
+      pointerY,
+      flyForward: THREE.MathUtils.clamp(flyForward, -1, 1),
+      flyStrafe: THREE.MathUtils.clamp(flyStrafe, -1, 1),
+      flyVertical: THREE.MathUtils.clamp(flyVertical, -1, 1),
+      flyFast: this.keys.has("ControlLeft") || button(7) > 0.5,
       pause: pressed("Escape", "pause", 9),
     };
   }

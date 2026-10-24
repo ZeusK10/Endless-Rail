@@ -130,3 +130,11 @@ button:active { transform: scale(.97); }
   .touch-cluster { flex-wrap: wrap; max-width: 56%; }
   .touch-cluster button { height: 43px; }
 }
+
+.free-controls .fly-pad { align-items: center; }
+.fly-vertical { display: flex; flex-direction: column; gap: 5px; }
+.fly-vertical button { height: 36px; }
+.free-controls button { min-width: 52px; }
+@media (pointer: coarse) {
+  .free-controls:not([hidden]) { display: flex; }
+}

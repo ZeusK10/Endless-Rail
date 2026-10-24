@@ -30,7 +30,7 @@
         <div class="hud-details">
           <span id="biome-value">Green Highlands</span><span>·</span>
           <span id="mode-value">MANUAL</span><span>·</span>
-          <span id="direction-value">FORWARD</span>
+          <span id="direction-value">FORWARD</span><span>·</span><span id="camera-value">TRAIN VIEW</span>
         </div>
         <div class="hud-details"><span>Throttle <b id="throttle-value">0%</b></span>
           <span>Brake <b id="brake-value">0%</b></span>
@@ -41,7 +41,7 @@
         <span>✦ <b id="achievement-value">0</b></span>
       </div>
       <button id="recover-button" class="recover" hidden>Train derailed — recover</button>
-      <div class="control-hint">W throttle · Q reduce · S brake · M mode · R/F direction · C camera · H horn · E activity · Esc pause</div>
+      <div id="control-hint" class="control-hint">W throttle · Q reduce · S brake · M mode · R/F direction · C views · V free cam · H horn · E activity · Esc pause</div>
     </section>
 
     <div id="touch-controls" class="touch-controls" aria-label="Touch train controls" hidden>
@@ -53,10 +53,27 @@
       <div class="touch-cluster">
         <button data-control="horn">HORN</button>
         <button data-control="camera">CAM</button>
+        <button data-control="freeCamera">FREE</button>
         <button data-control="mode">MODE</button>
         <button data-control="activity">DO</button>
         <button data-control="reverse">REV</button>
         <button data-control="forward">FWD</button>
+      </div>
+    </div>
+
+    <div id="free-controls" class="touch-controls free-controls" aria-label="Free camera flight controls" hidden>
+      <div class="touch-cluster fly-pad">
+        <button data-control="flyLeft" aria-label="Fly left">◀</button>
+        <div class="fly-vertical">
+          <button data-control="flyForward" aria-label="Fly forward">▲</button>
+          <button data-control="flyBack" aria-label="Fly backward">▼</button>
+        </div>
+        <button data-control="flyRight" aria-label="Fly right">▶</button>
+      </div>
+      <div class="touch-cluster">
+        <button data-control="flyUp" aria-label="Fly higher">UP</button>
+        <button data-control="flyDown" aria-label="Fly lower">DOWN</button>
+        <button data-control="freeCamera" class="accent" aria-label="Exit free camera">TRAIN</button>
       </div>
     </div>
 

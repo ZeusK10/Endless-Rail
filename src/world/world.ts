@@ -54,8 +54,9 @@ export class WorldStream {
     return this.landscape.height(s, offset);
   }
 
-  update(distance: number, speed = 0): void {
-    const rebased = Math.floor(distance / 2500) * 2500;
+  update(distance: number, speed = 0, cameraDistance?: number): void {
+    const focusDistance = cameraDistance ?? distance;
+    const rebased = Math.floor(focusDistance / 2500) * 2500;
     if (rebased !== this.originDistance) {
       this.originDistance = rebased;
       this.origin = this.rail.point(rebased);
@@ -64,9 +65,9 @@ export class WorldStream {
       }
     }
 
-    const current = Math.floor(distance / CHUNK_LENGTH);
-    const behind = speed < -0.2 ? 6 : 3;
-    const ahead = speed < -0.2 ? 3 : 6;
+    const current = Math.floor(focusDistance / CHUNK_LENGTH);
+    const behind = cameraDistance !== undefined ? 5 : speed < -0.2 ? 6 : 3;
+    const ahead = cameraDistance !== undefined ? 5 : speed < -0.2 ? 3 : 6;
     const desired = new Set<number>();
     for (let index = current - behind; index <= current + ahead; index++) {
       desired.add(index);
