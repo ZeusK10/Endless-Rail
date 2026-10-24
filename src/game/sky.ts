@@ -108,7 +108,7 @@ export class SkySystem {
       depthTest: false,
       fog: false,
     });
-    this.dome = new THREE.Mesh(new THREE.SphereGeometry(880, 32, 18), material);
+    this.dome = new THREE.Mesh(new THREE.SphereGeometry(2100, 32, 18), material);
     this.dome.name = "procedural-skybox";
     this.dome.frustumCulled = false;
     this.dome.renderOrder = -100;
@@ -119,9 +119,9 @@ export class SkySystem {
     for (let i = 0; i < 260; i++) {
       const y = .04 + hash(seed, i, 170) * .92;
       const azimuth = hash(seed, i, 171) * Math.PI * 2;
-      const xz = Math.sqrt(1 - y * y) * 810;
+      const xz = Math.sqrt(1 - y * y) * 2050;
       points[i * 3] = Math.cos(azimuth) * xz;
-      points[i * 3 + 1] = y * 810;
+      points[i * 3 + 1] = y * 2050;
       points[i * 3 + 2] = Math.sin(azimuth) * xz;
     }
     const geometry = new THREE.BufferGeometry();

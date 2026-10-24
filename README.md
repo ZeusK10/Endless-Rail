@@ -2,23 +2,25 @@
 
 A lightweight, single-player, browser-based toy-train journey through a procedurally generated world.
 
-## Current implementation (V1.2 development branch)
+## Current implementation (V1.3 scenic overhaul branch)
 
 - Three.js + TypeScript + Vite.
 - Deterministic rail alignment with straight-ish stretches, varied bends and seeded bridge, tunnel and cutting corridors. Track limits are available to the HUD and route-aware cruise/autodrive.
 - Streamed, deterministic multi-level terrain with rolling valleys, high ridgelines, sculpted lakes and railway cuttings; reversing regenerates the same places.
 - Dense three-tier broadleaf, pine and blossom forests, colorful bushes, flowers and rocky outcrops in Green Highlands, Cherry Blossom Valley and Lakeside Valley.
-- Irregular biome-themed villages with gardens, roads and landmarks. Cached, merged low-poly houses have pitched gables, roof tile courses, window mullions/shutters, doors, flower boxes, stonework and distinct highland chimneys, cherry verandas and lakeside porches.
+- Tighter biome-themed villages with ground-conforming dirt lanes, wells, playgrounds and more varied traditional, modern, multi-storey and balcony-equipped houses. Cached merged prototypes retain detailed gables, windows, shutters, flower boxes, chimneys, porches and roof trim.
+- Sculpted rivers with soil banks, shoreline lakes with lily-like floating leaves, passenger rowboats and anglers, plus several populated but non-stopping station designs with platforms, signs, lamps and benches.
+- Excavated rock tunnels with darkened floor and lighting, a single carved arch portal, and a brighter outside/darker interior transition.
 - Selectable diesel, electric and steam locomotive models (only when stopped), each with different acceleration and speed characteristics; passenger cars retain their details and animated wheelsets. A batched, low-poly exhaust plume emits darker diesel soot or fuller rising steam, while electric locomotives have no smoke.
 - Smooth acceleration, braking, coasting and gradient physics, with independent locomotive braking, emergency stopping, look-ahead speed limiting, and visible derailment reactions.
 - Manual, cruise control and autodrive; optional, graded derailment probability based on speed, cornering and harsh braking. HUD estimates the risk over the next ten seconds.
-- Controller, keyboard and touchscreen controls; four train cameras plus free-fly camera with independent world streaming.
+- Controller, keyboard and touchscreen controls; chase, elevated, side, forward, driver's cab and passenger perspectives, plus anchored free-look. Camera presets remain distinct through tunnels, and interior views hide the obstructing solid exterior shells.
 - Bundled CC0 recordings of a real diesel idling, rail cars rolling and a longer locomotive horn, blended by speed and throttle. Added generated rail-joint clicks, brake hiss, curve squeal, and derailment crash effects.
 - Optional speed, smooth-driving, scenic, passenger-comfort and speed-limit activities. Session-only milestones, best speed, comfort and overspeed statistics.
-- Main menu, minimalist contextual driving HUD, slide-out settings, camera sensitivity, per-category audio mixer, adaptive rendering/vegetation density and view distance. Seeded clear, mist and drizzle weather cycles, plus a lightweight shader skybox with a full day/night cycle, sunset and sunrise colors, sun, moon, stars and synchronized lighting.
+- Main menu, bottom-center tap-to-collapse speed HUD (tap speed again to expand), fixed driving controls, top-right settings/pause shortcuts, slide-out settings, camera sensitivity, per-category audio mixer, adaptive rendering/vegetation density and view distance. Seeded clear, mist and drizzle weather cycles, plus a lightweight shader skybox with a full day/night cycle, sunset and sunrise colors, sun, moon, stars and synchronized lighting.
 - **No accounts, multiplayer, backend or save system. Refresh resets the experience.**
 
-The train and scenery are stylized low-poly representations rather than scanned models. The new train audio uses real field recordings plus procedural effects, all bundled locally. See [AUDIO_SOURCES.md](AUDIO_SOURCES.md) for the recordings, edits and CC0 licensing. The scene is a playable early version, not a finished art or simulation release. Station and junction operations remain future milestones. Electric/steam propulsion accents are lightweight synthesized placeholders; the bundled real engine recording is diesel-specific. Train-type-specific field recordings and in-device audio balancing remain future sound improvements.
+The train and scenery are stylized low-poly representations rather than scanned models. The new train audio uses real field recordings plus procedural effects, all bundled locally. See [AUDIO_SOURCES.md](AUDIO_SOURCES.md) for the recordings, edits and CC0 licensing. The scene is a playable early version, not a finished art or simulation release. Stations are currently scenic only: the train does not stop or manage passengers. Junction operations remain a future milestone. Electric/steam propulsion accents are lightweight synthesized placeholders; the bundled real engine recording is diesel-specific. Train-type-specific field recordings and in-device audio balancing remain future sound improvements.
 
 ## Run
 

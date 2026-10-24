@@ -8,6 +8,7 @@ export interface SceneryChunk {
   group: THREE.Group;
   center: THREE.Vector3;
   instances: THREE.InstancedMesh[];
+  geometries?: THREE.BufferGeometry[];
 }
 
 interface Context {
@@ -46,6 +47,10 @@ const windows = lambert("#718f91");
 const doors = lambert("#5f5149");
 const stones = lambert("#a4a599");
 const paths = lambert("#c6b593");
+const mudRoadMaterial = new THREE.MeshLambertMaterial({
+  color: "#aa8660", vertexColors: true, flatShading: true,
+  side: THREE.DoubleSide,
+});
 const fence = lambert("#b2a084");
 
 const reusableBox = new THREE.BoxGeometry(1, 1, 1);
@@ -81,18 +86,28 @@ function addInstances(ctx: Context, mesh: THREE.InstancedMesh, count: number): v
   }
 }
 
+export function villageRegion(seed: number, index: number): { center: number; side: number } | null {
+  // One settlement spans three neighboring chunks. Its seed is independent
+  // of streaming order, so a reverse journey recreates the same village.
+  const region = Math.round((index - 7) / 15);
+  const center = region * 15 + 7;
+  if (Math.abs(index - center) > 1) return null;
+  return { center, side: hash(seed, center, 99) > .5 ? 1 : -1 };
+}
+
 function isVillageClearing(seed: number, index: number, s: number, offset: number): boolean {
-  if (((index % 12) + 12) % 12 !== 7) return false;
-  const mid = index * CHUNK_LENGTH + CHUNK_LENGTH / 2;
-  const side = hash(seed, index, 99) > 0.5 ? 1 : -1;
-  return Math.abs(s - mid) < 104 && Math.abs(offset - side * 58) < 47;
+  const region = villageRegion(seed, index);
+  if (!region) return false;
+  const villageS = region.center * CHUNK_LENGTH + CHUNK_LENGTH / 2;
+  const villageOffset = region.side * 88;
+  // Compact clearing around the planned hamlet, not a vacant rectangle
+  // repeated once per streamed chunk.
+  return Math.pow((s - villageS) / 215, 2) +
+    Math.pow((offset - villageOffset) / 99, 2) < 1.1;
 }
 
 function isWater(ctx: Context, s: number, offset: number): boolean {
-  const index = Math.floor(s / CHUNK_LENGTH);
-  if (biomeAt(s) !== "lakeside" || ((index % 5) + 5) % 5 !== 1) return false;
-  const lake = ctx.landscape.lake(index);
-  return Math.hypot((s - lake.s) / 82, (offset - lake.offset) / 64) < 1.1;
+  return ctx.landscape.isWater(s, offset);
 }
 
 export function populateLandscape(
@@ -116,6 +131,8 @@ export function populateLandscape(
     const density = ctx.landscape.vegetationDensity(s, offset);
     // Coherent vegetation noise forms natural groves and meadow clearings.
     if (rand(19) > 0.28 + Math.pow(density, 1.5) * 0.72) continue;
+    const nearbyStation = Math.round((s - 125) / 3500) * 3500 + 125;
+    if (Math.abs(s - nearbyStation) < 63 && Math.abs(offset) < 42) continue;
     if (isVillageClearing(seed, index, s, offset) || isWater(ctx, s, offset)) continue;
 
     const biome = biomeAt(s);
@@ -273,10 +290,15 @@ const houseCache = new Map<string, THREE.Group>();
 
 function houseDetailPrototype(biome: Biome, variant: number): THREE.Group {
   const house = new THREE.Group();
-  const wide = biome === "cherry" ? 6.2 : 4.9 + (variant % 3) * 0.6;
-  const depth = biome === "lakeside" ? 7.3 : 5.8;
-  const h = biome === "highlands" ? 4.0 : 3.5;
-  const rise = biome === "cherry" ? 1.45 : 2.05;
+  const architecture = variant % 6;
+  const modern = architecture === 2 || architecture === 5;
+  const floors = modern ? (architecture === 5 ? 3 : 2) :
+    architecture === 4 ? 2 : 1;
+  const wide = modern ? 7.1 + (variant % 3) * .65 :
+    biome === "cherry" ? 6.2 : 4.9 + (variant % 3) * .6;
+  const depth = modern ? 7.8 : biome === "lakeside" ? 7.3 : 5.8;
+  const h = (biome === "highlands" ? 4.0 : 3.5) + (floors - 1) * 2.95;
+  const rise = modern ? .34 : biome === "cherry" ? 1.45 : 2.05;
   const wall = walls[(variant + (biome === "cherry" ? 2 : 0)) % walls.length];
   const roof = roofs[(variant + (biome === "lakeside" ? 1 : 0)) % roofs.length];
   const glazing = variant % 4 === 0 ? windowGlow : windows;
@@ -284,7 +306,8 @@ function houseDetailPrototype(biome: Biome, variant: number): THREE.Group {
   const front = -depth / 2;
   const wallTop = h + foundation;
 
-  block(house, stones, 0, 0.32, 0, wide + 0.65, 0.64, depth + 0.7);
+  // Deep masonry footing seals uneven terrain beneath elevated plots.
+  block(house, stones, 0, -0.35, 0, wide + 0.65, 2.0, depth + 0.7);
   block(house, wall, 0, h / 2 + foundation, 0, wide, h, depth);
   block(house, timber, 0, 0.76, 0, wide + 0.12, 0.23, depth + 0.12);
   // Stone corner quoins and irregular foundation blocks give the walls depth.
@@ -297,7 +320,9 @@ function houseDetailPrototype(biome: Biome, variant: number): THREE.Group {
     }
   }
 
+  const roofDepth = depth + (biome === "cherry" ? 2.0 : 1.2);
   // A triangular gable closes the facade under the pitched roof.
+  if (!modern) {
   const gableOutline = new THREE.Shape();
   gableOutline.moveTo(-wide / 2, wallTop - 0.04);
   gableOutline.lineTo(0, wallTop + rise - 0.14);
@@ -311,7 +336,6 @@ function houseDetailPrototype(biome: Biome, variant: number): THREE.Group {
 
   const roofLength = Math.hypot(wide / 2 + 0.6, rise) + 0.3;
   const roofAngle = Math.atan2(rise, wide / 2 + 0.6);
-  const roofDepth = depth + (biome === "cherry" ? 2.0 : 1.2);
   for (const side of [-1, 1]) {
     const section = new THREE.Group();
     section.position.set(side * wide / 4, wallTop + rise / 2, 0);
@@ -332,6 +356,17 @@ function houseDetailPrototype(biome: Biome, variant: number): THREE.Group {
   block(house, glazing, 0, wallTop + rise * 0.38, front - 0.20, 0.51, 0.44, 0.07);
   block(house, timber, 0, wallTop + rise * 0.38, front - 0.27, 0.08, 0.48, 0.045);
 
+  } else {
+    // Modern masonry apartments break the repeated pitched-roof silhouette.
+    block(house, roof, 0, wallTop + .18, 0, wide + .85, .34, depth + .86);
+    for (const x of [-wide / 2 - .32, wide / 2 + .32]) {
+      block(house, trim, x, wallTop + .56, 0, .22, .82, depth + 1.02);
+    }
+    for (const z of [front - .4, -front + .4]) {
+      block(house, trim, 0, wallTop + .56, z, wide + .85, .82, .2);
+    }
+    block(house, timber, wide * .3, wallTop + 1.18, 0, 1.36, 1.3, 1.25);
+  }
   // Front entrance: a recessed frame, divided door, handle, threshold, steps.
   block(house, trim, 0, 1.68, front - 0.085, 1.48, 2.19, 0.2);
   block(house, doors, 0, 1.67, front - 0.21, 1.23, 2.02, 0.12);
@@ -370,6 +405,24 @@ function houseDetailPrototype(biome: Biome, variant: number): THREE.Group {
     }
   }
 
+  if (floors > 1) {
+    for (let floor = 1; floor < floors; floor++) {
+      const y = 2.55 + floor * 2.95;
+      for (const x of [-wide * .3, wide * .3]) {
+        windowAt(x, y, front - .07, 1.15, 1.4);
+      }
+      if (modern || (architecture === 4 && floor === 1)) {
+        // Balconies have deck slabs, railings and real openings.
+        const balconyY = y - 1.08;
+        block(house, stones, 0, balconyY, front - 1.1, wide * .85, .23, 2.1);
+        for (const x of [-wide * .4, 0, wide * .4]) {
+          block(house, roofEdge, x, balconyY + .58, front - 2.11, .11, 1.18, .12);
+        }
+        block(house, roofEdge, 0, balconyY + 1.12, front - 2.12, wide * .82, .13, .12);
+      }
+    }
+  }
+
   // Side facades get real glazing, mullions and wooden sill details.
   for (const side of [-1, 1]) {
     const x = side * (wide / 2 + 0.11);
@@ -379,6 +432,13 @@ function houseDetailPrototype(biome: Biome, variant: number): THREE.Group {
       block(house, timber, x + side * 0.15, 2.62, z, 0.08, 1.18, 0.07);
       block(house, timber, x + side * 0.16, 2.62, z, 0.08, 0.07, 1.05);
       block(house, stones, x, 1.88, z, 0.39, 0.13, 1.36);
+    }
+    for (let floor = 1; floor < floors; floor++) {
+      for (const z of [-depth * .2, depth * .24]) {
+        block(house, trim, x, 2.62 + floor * 2.95, z, .20, 1.48, 1.29);
+        block(house, glazing, x + side * .09, 2.62 + floor * 2.95, z,
+          .09, 1.18, 1.03);
+      }
     }
     // Rain gutter and downpipe also make the silhouette less box-like.
     block(house, roofEdge, side * (wide / 2 + 0.34), wallTop + 0.08, 0,
@@ -471,57 +531,410 @@ function makeHouse(biome: Biome, variant: number, scale: number): THREE.Group {
   return house;
 }
 
+// Outbuildings have distinct footprints, roof silhouettes and facades, with
+// cached shared detail so settlements never fall back to a generic cube.
+const outbuildingCache = new Map<string, THREE.Group>();
+function makeOutbuilding(biome: Biome, kind: "barn" | "shop" | "workshop"): THREE.Group {
+  const cacheKey = biome + ":" + kind;
+  const cached = outbuildingCache.get(cacheKey);
+  if (cached) return cached.clone();
+  const group = new THREE.Group();
+  const width = kind === "barn" ? 10.8 : kind === "workshop" ? 8.4 : 7.7;
+  const depth = kind === "barn" ? 12 : 8.2;
+  const height = kind === "barn" ? 6.3 : 4.2;
+  const main = kind === "barn" ? timber : walls[kind === "shop" ? 3 : 1];
+  block(group, stones, 0, .28, 0, width + .7, .56, depth + .7);
+  block(group, main, 0, height / 2 + .56, 0, width, height, depth);
+  for (const flank of [-1, 1]) {
+    const roof = block(group, kind === "barn" ? roofs[3] : roofs[2],
+      flank * width / 4, height + 1.13, 0,
+      width * .57, .28, depth + 1.35);
+    roof.rotation.z = -flank * .39;
+    block(group, trim, flank * width * .32, 2.8, -depth / 2 - .14,
+      1.45, 1.6, .21);
+    block(group, windows, flank * width * .32, 2.8, -depth / 2 - .29,
+      1.24, 1.35, .08);
+  }
+  block(group, doors, 0, 2.15, -depth / 2 - .16,
+    kind === "barn" ? 3.9 : 2.1, 3.9, .2);
+  if (kind === "shop") {
+    block(group, roofs[4], 0, 3.72, -depth / 2 - 1.2, width * .78, .16, 2.6);
+    block(group, trim, 0, 4.4, -depth / 2 - .21, width * .7, .76, .17);
+  } else if (kind === "workshop") {
+    block(group, stones, 2.8, height + 2.15, 1.5, .85, 3.9, .9);
+    block(group, roofs[0], 2.8, height + 4.15, 1.5, 1.05, .3, 1.1);
+  } else {
+    for (let plank = -2; plank <= 2; plank++) {
+      block(group, trim, plank * .68, 2.15, -depth / 2 - .31,
+        .075, 3.45, .08);
+    }
+  }
+  outbuildingCache.set(cacheKey, group);
+  return group.clone();
+}
+
+
 export function populateVillage(ctx: Context, index: number, mid: number): void {
-  const seed = ctx.rail.seed;
-  const biome = biomeAt(mid);
-  const side = hash(seed, index, 99) > 0.5 ? 1 : -1;
-  const count = 7 + Math.floor(hash(seed, index, 3) * 5);
-  for (let i = 0; i < count; i++) {
-    const row = i % 2;
-    const col = Math.floor(i / 2);
-    const s = mid - 83 + col * 30 + (hash(seed ^ 0x3b15e, index, i) - 0.5) * 24;
-    const offset = side * (33 + row * 41 + hash(seed ^ 0x941e5, index, i) * 18);
-    const house = makeHouse(biome, i, 0.68 + hash(seed + 6, index, i) * 0.45);
-    house.position.copy(basePoint(ctx, s, offset));
-    house.rotation.y = Math.atan2(-ctx.rail.tangent(s).x, -ctx.rail.tangent(s).z) +
-      (side < 0 ? Math.PI : 0) + (hash(seed ^ 0x861aa, index, i) - .5) * .44;
-    ctx.chunk.group.add(house);
-    // Short garden paths run from each doorway towards the village lane.
-    const path = new THREE.Mesh(reusableBox, paths);
-    path.scale.set(2.1, 0.12, 5);
-    path.position.copy(basePoint(ctx, s, offset - side * 6));
-    path.position.y += 0.1;
-    path.rotation.y = house.rotation.y;
-    ctx.chunk.group.add(path);
+  const region = villageRegion(ctx.rail.seed, index);
+  if (!region) return;
+  const seed = ctx.rail.seed, side = region.side;
+  const villageS = region.center * CHUNK_LENGTH + CHUNK_LENGTH / 2;
+  const villageOffset = side * (88 + hash(seed, region.center, 420) * 7);
+  const start = mid - CHUNK_LENGTH / 2, end = mid + CHUNK_LENGTH / 2;
+  type TownPoint = { s: number; offset: number };
+  const center: TownPoint = { s: villageS, offset: villageOffset };
+  const radiusS = 97 + hash(seed, region.center, 421) * 11;
+  const radiusOff = 40 + hash(seed, region.center, 422) * 9;
+  const loop = (angle: number): TownPoint => ({
+    s: villageS + Math.sin(angle) * radiusS +
+      Math.sin(angle * 3 + .45) * 8,
+    offset: villageOffset + side *
+      (Math.cos(angle) * radiusOff + Math.sin(angle * 2 + 1.3) * 7),
+  });
+  const hubs: TownPoint[] = [
+    { s: villageS - 157, offset: villageOffset - side * 22 },
+    { s: villageS + 158, offset: villageOffset + side * 26 },
+    { s: villageS + 12, offset: villageOffset + side * 54 },
+  ];
+  const mainVerts: number[] = [], mainColors: number[] = [], mainIndices: number[] = [];
+  const laneVerts: number[] = [], laneColors: number[] = [], laneIndices: number[] = [];
+  // A cross-section in rail-distance/lateral coordinates lets both verges
+  // sample the true height field, including on rising and twisting terrain.
+  const ribbon = (a: TownPoint, b: TownPoint, width: number,
+    narrow = false): void => {
+    const vertices = narrow ? laneVerts : mainVerts;
+    const colors = narrow ? laneColors : mainColors;
+    const indices = narrow ? laneIndices : mainIndices;
+    const centerS = (a.s + b.s) / 2;
+    if (centerS < start || centerS >= end) return;
+    if (isWater(ctx, a.s, a.offset) || isWater(ctx, b.s, b.offset)) return;
+    const tangentS = b.s - a.s, tangentO = b.offset - a.offset;
+    const length = Math.hypot(tangentS, tangentO);
+    if (length < .15) return;
+    const normalS = -tangentO / length, normalO = tangentS / length;
+    const base = vertices.length / 3;
+    for (const point of [a, b]) {
+      for (const flank of [-1, 1]) {
+        const at = basePoint(ctx, point.s + normalS * width * flank / 2,
+          point.offset + normalO * width * flank / 2);
+        // Maintain visible separation from ground and avoid coplanar shimmer.
+        vertices.push(at.x, at.y + (narrow ? .17 : .19), at.z);
+        const tint = .91 + hash(seed, Math.floor(point.s * .31), flank + 91) * .13;
+        colors.push(tint, tint * .94, tint * .83);
+      }
+    }
+    indices.push(base, base + 1, base + 2, base + 1, base + 3, base + 2);
+  };
+  const road = (points: TownPoint[], width: number, narrow = false): void => {
+    for (let k = 1; k < points.length; k++) {
+      const a = points[k - 1], b = points[k];
+      const length = Math.hypot(b.s - a.s, b.offset - a.offset);
+      const divisions = Math.max(1, Math.ceil(length / 3.2));
+      let previous = a;
+      for (let i = 1; i <= divisions; i++) {
+        const f = i / divisions;
+        const next = {
+          s: THREE.MathUtils.lerp(a.s, b.s, f),
+          offset: THREE.MathUtils.lerp(a.offset, b.offset, f),
+        };
+        ribbon(previous, next, width, narrow);
+        previous = next;
+      }
+    }
+  };
+  const bend = (a: TownPoint, b: TownPoint, curve: number): TownPoint[] => {
+    const points: TownPoint[] = [];
+    for (let step = 0; step <= 16; step++) {
+      const t = step / 16;
+      const arc = Math.sin(t * Math.PI) * curve;
+      points.push({
+        s: THREE.MathUtils.lerp(a.s, b.s, t) + arc,
+        offset: THREE.MathUtils.lerp(a.offset, b.offset, t) + side * arc * .27,
+      });
+    }
+    return points;
+  };
 
+  // A walkable connected street graph: uneven loop, three neighborhood lanes,
+  // a shared square and a sloping lane towards the railway.
+  const ring: TownPoint[] = [];
+  for (let i = 0; i <= 128; i++) ring.push(loop(i * Math.PI * 2 / 128));
+  road(ring, 5.2);
+  for (let i = 0; i < hubs.length; i++) {
+    const junction = loop([4.75, 1.30, 5.25][i]);
+    road(bend(junction, hubs[i], (i - 1) * 11), 4.1);
+    // Small curved lanes around satellite courtyards, connected to the
+    // main loop. Adjacent chunks contain actual neighborhoods.
+    const court: TownPoint[] = [];
+    for (let j = 0; j <= 44; j++) {
+      const a = j * Math.PI * 2 / 44;
+      court.push({ s: hubs[i].s + Math.sin(a) * 24,
+        offset: hubs[i].offset + Math.cos(a) * 17 });
+    }
+    road(court, 3.5);
+  }
+  road(bend(center, loop(.2), -9), 4.3);
+  road(bend(center, loop(3.1), 10), 4.3);
+  road(bend(
+    { s: villageS - 11, offset: side * 17 },
+    loop(Math.PI + .25), 9), 4.4);
+
+  const placed: TownPoint[] = [];
+  for (let i = 0; i < 42; i++) {
+    let lot: TownPoint, street: TownPoint;
+    if (i < 29) {
+      const angle = i / 29 * Math.PI * 2 +
+        (hash(seed ^ 0x88a1e, region.center, i) - .5) * .15;
+      street = loop(angle);
+      const behind = loop(angle + .016);
+      const ahead = loop(angle - .016);
+      const ds = behind.s - ahead.s, dOff = behind.offset - ahead.offset;
+      const length = Math.max(1, Math.hypot(ds, dOff));
+      const outward = i % 5 === 0 ? -1 : 1;
+      const setback = 11 + hash(seed, i, region.center + 791) * 12;
+      lot = {
+        s: street.s + (-dOff / length) * setback * outward,
+        offset: street.offset + (ds / length) * setback * outward,
+      };
+    } else {
+      const id = i - 29;
+      const hub = hubs[id % hubs.length];
+      const angle = Math.floor(id / 3) * Math.PI * 2 / 5 +
+        hash(seed ^ 0x441a, id % 3, region.center) * .17;
+      const r = 24 + hash(seed, i, region.center + 88) * 3;
+      lot = { s: hub.s + Math.sin(angle) * r,
+        offset: hub.offset + Math.cos(angle) * r };
+      street = hub;
+    }
+    // The spatial plan is global. Buildings belong to one chunk by s,
+    // regardless of load order, so reversing recreates identical streets.
+    if (placed.some(previous =>
+      Math.hypot(previous.s - lot.s, previous.offset - lot.offset) < 12)) continue;
+    if (isWater(ctx, lot.s, lot.offset)) continue;
+    const h = ctx.landscape.height(lot.s, lot.offset);
+    const cornerHeights = [-1, 1].flatMap(ds => [-1, 1].map(dOff =>
+      ctx.landscape.height(lot.s + ds * 4, lot.offset + dOff * 4)));
+    const high = Math.max(...cornerHeights);
+    if (high - Math.min(...cornerHeights) > 7.2) continue;
+    placed.push(lot);
+    if (lot.s < start || lot.s >= end) continue;
+    const style = i % 17 === 0 ? "barn" : i % 13 === 4 ? "shop" :
+      i === 33 ? "workshop" : null;
+    const building = style ? makeOutbuilding(biomeAt(lot.s), style) :
+      makeHouse(biomeAt(lot.s), (i * 5 + region.center * 3 + 120) % 12,
+        .75 + hash(seed ^ 0x3b8c, region.center, i) * .4);
+    building.position.copy(basePoint(ctx, lot.s, lot.offset));
+    building.position.y += Math.max(0, high - h) + .12;
+    const housePoint = basePoint(ctx, lot.s, lot.offset);
+    const streetPoint = basePoint(ctx, street.s, street.offset);
+    const towardStreet = streetPoint.sub(housePoint);
+    building.rotation.y = Math.atan2(-towardStreet.x, -towardStreet.z) +
+      (hash(seed, i, region.center + 920) - .5) * .20;
+    ctx.chunk.group.add(building);
+
+    // Curving driveways end on the loop or a branch rather than forming
+    // uniform perpendicular teeth off a straight arterial road.
+    const middle: TownPoint = {
+      s: THREE.MathUtils.lerp(lot.s, street.s, .47) +
+        (hash(seed, i, 68) - .5) * 3.4,
+      offset: THREE.MathUtils.lerp(lot.offset, street.offset, .47) +
+        side * (hash(seed, i, 69) - .5) * 2.8,
+    };
+    road([street, middle, lot], 2.25, true);
+    if (i % 4 === 0) {
+      const garden = basePoint(ctx, lot.s + 7, lot.offset + side * 6);
+      for (const delta of [-1.4, 0, 1.4]) {
+        block(ctx.chunk.group, field, garden.x + delta,
+          garden.y + .24, garden.z, .75, .34, 5.6);
+      }
+    }
     if (i % 3 === 0) {
-      // Individual vegetable plots and gardens make each hamlet feel lived in.
-      const plot = basePoint(ctx, s + 8, offset + side * 9);
-      block(ctx.chunk.group, soil, plot.x, plot.y + .08, plot.z, 5.8, .16, 8.4);
-      for (let bed = -1; bed <= 1; bed++) {
-        block(ctx.chunk.group, field,
-          plot.x + bed * 1.55, plot.y + .19, plot.z,
-          .75, .16, 7.4);
-      }
+      const tree = basePoint(ctx, lot.s - 7, lot.offset + side * 6);
+      block(ctx.chunk.group, timber, tree.x, tree.y + 1.15, tree.z, .33, 2.3, .33);
+      const canopy = new THREE.Mesh(shrubShape, gardenGreen);
+      canopy.position.set(tree.x, tree.y + 2.85, tree.z);
+      canopy.scale.set(1.6, 1.7, 1.6);
+      ctx.chunk.group.add(canopy);
     }
   }
 
-  // A shared unpaved lane and small fences tie individual houses together.
-  for (let j = 0; j < 7; j++) {
-    const s = mid - 85 + j * 28;
-    const pos = basePoint(ctx, s, side * 53);
-    const lane = new THREE.Mesh(reusableBox, paths);
-    lane.scale.set(5.6, 0.16, 30);
-    lane.position.copy(pos);
-    lane.position.y += 0.04;
-    lane.rotation.y = Math.atan2(-ctx.rail.tangent(s).x, -ctx.rail.tangent(s).z);
-    ctx.chunk.group.add(lane);
-    if (j % 2 === 0) {
-      for (const edge of [side * 30, side * 86]) {
-        const post = basePoint(ctx, s, edge);
-        block(ctx.chunk.group, fence,
-          post.x, post.y + 0.7, post.z, 0.18, 1.4, 0.18);
-      }
+  if (index === region.center) {
+    // A village square with a well, market stalls, seating and a playground.
+    const well = new THREE.Group();
+    well.position.copy(basePoint(ctx, center.s - 12, center.offset - side * 6));
+    for (let j = 0; j < 10; j++) {
+      const angle = j * 2 * Math.PI / 10;
+      const rock = new THREE.Mesh(reusableBox, stones);
+      rock.position.set(Math.cos(angle) * 1.55, .75, Math.sin(angle) * 1.55);
+      rock.rotation.y = angle;
+      rock.scale.set(.95, 1.55, .45);
+      well.add(rock);
+    }
+    for (const x of [-1.95, 1.95]) block(well, timber, x, 2.4, 0, .2, 3.3, .2);
+    block(well, roofs[2], 0, 4.2, 0, 4.4, .28, 3.5);
+    block(well, timber, 0, 2.82, 0, 4.1, .12, .12);
+    ctx.chunk.group.add(well);
+    const park = new THREE.Group();
+    park.position.copy(basePoint(ctx, center.s + 18, center.offset + side * 6));
+    for (const x of [-2.8, 2.8]) for (const z of [-1.8, 1.8]) {
+      const post = block(park, timber, x, 1.7, z, .24, 3.4, .23);
+      post.rotation.z = (x > 0 ? 1 : -1) * .14;
+    }
+    block(park, roofEdge, 0, 3.37, 0, 6.2, .18, .18);
+    for (const x of [-1.25, 1.25]) {
+      block(park, roofs[1], x, 1.05, -.5, 1.06, .17, .65);
+      for (const delta of [-.44, .44])
+        block(park, stones, x + delta, 2.08, -.5, .05, 2.2, .05);
+    }
+    ctx.chunk.group.add(park);
+    for (let i = 0; i < 3; i++) {
+      const market = new THREE.Group();
+      const marketS = center.s - 35 + i * 23;
+      market.position.copy(basePoint(ctx, marketS, center.offset + side * 18));
+      for (const x of [-2, 2]) for (const z of [-1.4, 1.4])
+        block(market, timber, x, 1.7, z, .16, 3.4, .16);
+      block(market, roofs[(i + 1) % roofs.length], 0, 3.4, 0, 5.2, .22, 4.2);
+      block(market, paths, 0, .6, 0, 4.2, 1.1, 2.8);
+      ctx.chunk.group.add(market);
     }
   }
+
+  const upload = (vertices: number[], colors: number[], indices: number[],
+    name: string): void => {
+    if (!vertices.length) return;
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
+    geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+    geometry.setIndex(indices);
+    geometry.computeVertexNormals();
+    const mesh = new THREE.Mesh(geometry, mudRoadMaterial);
+    mesh.name = name;
+    ctx.chunk.group.add(mesh);
+    ctx.chunk.geometries?.push(geometry);
+  };
+  upload(mainVerts, mainColors, mainIndices, "terrain-following-mud-road");
+  upload(laneVerts, laneColors, laneIndices, "terrain-following-house-paths");
+}
+
+const animalMaterials: Record<string, THREE.MeshLambertMaterial> = {
+  deer: lambert("#a77551"), sheep: lambert("#e1ddcb"),
+  horse: lambert("#805e43"), bird: lambert("#647984"),
+  hoof: lambert("#544739"), pale: lambert("#d9bb90"),
+};
+const faunaCache = new Map<string, THREE.Group>();
+
+function wildlifePrototype(kind: "deer" | "sheep" | "horse" | "bird"): THREE.Group {
+  const cached = faunaCache.get(kind);
+  if (cached) return cached;
+  const root = new THREE.Group();
+  const fur = animalMaterials[kind], hoof = animalMaterials.hoof;
+  const put = (material: THREE.Material, x: number, y: number, z: number,
+    sx: number, sy: number, sz: number): void => {
+    block(root, material, x, y, z, sx, sy, sz);
+  };
+  if (kind === "bird") {
+    put(fur, 0, 0, 0, .55, .38, 1.1);
+    put(fur, -.8, .03, .1, 1.6, .10, .62);
+    put(fur, .8, .03, .1, 1.6, .10, .62);
+    put(hoof, 0, .02, -.68, .24, .12, .36);
+  } else {
+    const size = kind === "horse" ? 1.36 : kind === "deer" ? 1.05 : .87;
+    const bodyLength = kind === "sheep" ? 2.3 : 2.75;
+    put(fur, 0, 1.93 * size, 0, 1.12 * size, 1.38 * size, bodyLength * size);
+    for (const x of [-.41, .41]) {
+      for (const z of [-.92, .92]) {
+        put(fur, x * size, .89 * size, z * size, .27 * size, 1.68 * size, .32 * size);
+        put(hoof, x * size, .12 * size, z * size,
+          .35 * size, .24 * size, .38 * size);
+      }
+    }
+    put(fur, 0, 2.69 * size, -1.04 * size, .72 * size, 1.42 * size, .72 * size);
+    put(fur, 0, 3.43 * size, -1.42 * size, .77 * size, .64 * size, 1.15 * size);
+    put(animalMaterials.pale, 0, 3.23 * size, -1.91 * size,
+      .62 * size, .35 * size, .5 * size);
+    for (const x of [-.23, .23]) {
+      put(fur, x * size, 3.93 * size, -1.53 * size,
+        .22 * size, .4 * size, .18 * size);
+    }
+    if (kind === "deer") {
+      for (const x of [-.24, .24]) {
+        put(animalMaterials.pale, x * size, 4.29 * size, -1.48 * size,
+          .12 * size, .95 * size, .12 * size);
+        put(animalMaterials.pale, x * 1.9 * size, 4.55 * size, -1.48 * size,
+          .51 * size, .10 * size, .12 * size);
+      }
+    } else if (kind === "sheep") {
+      for (const x of [-.33, 0, .33]) for (const z of [-.55, 0, .55]) {
+        const wool = new THREE.Mesh(new THREE.IcosahedronGeometry(.51, 0), fur);
+        wool.position.set(x * size, 2.39 * size, z * size);
+        root.add(wool);
+      }
+    } else {
+      put(hoof, 0, 2.9 * size, 1.48 * size, .3 * size, .27 * size, .85 * size);
+    }
+  }
+  // Merge geometry by material once; individual animated creatures take only
+  // a handful of draw calls regardless of component count.
+  root.updateMatrixWorld(true);
+  const parts = new Map<THREE.Material, THREE.BufferGeometry[]>();
+  root.traverse(object => {
+    if (!(object instanceof THREE.Mesh)) return;
+    const material = object.material as THREE.Material;
+    const geometry = object.geometry.index ? object.geometry.toNonIndexed() : object.geometry.clone();
+    geometry.applyMatrix4(object.matrixWorld);
+    const group = parts.get(material) ?? [];
+    group.push(geometry);
+    parts.set(material, group);
+  });
+  const merged = new THREE.Group();
+  for (const [material, pieces] of parts) {
+    const geometry = pieces.length > 1 ? mergeGeometries(pieces, false) : pieces[0];
+    if (!geometry) throw new Error("Unable to combine wildlife geometry");
+    merged.add(new THREE.Mesh(geometry, material));
+    if (pieces.length > 1) pieces.forEach(piece => piece.dispose());
+  }
+  faunaCache.set(kind, merged);
+  return merged;
+}
+
+/** Chunk-seeded lightweight fauna, far enough from rails, houses and water. */
+export function populateWildlife(
+  ctx: Context, index: number, start: number, end: number, densityScale = 1,
+): THREE.Object3D[] {
+  const animals: THREE.Object3D[] = [];
+  const candidates = Math.max(1, Math.round((4 + hash(ctx.rail.seed, index, 804) * 4) * densityScale));
+  const palette: Array<"deer" | "sheep" | "horse" | "bird"> =
+    biomeAt((start + end) / 2) === "highlands"
+      ? ["deer", "sheep", "horse", "bird"]
+      : biomeAt((start + end) / 2) === "cherry"
+        ? ["deer", "deer", "bird", "sheep"]
+        : ["sheep", "horse", "bird", "bird"];
+  for (let i = 0; i < candidates; i++) {
+    const rand = (salt: number) =>
+      hash(ctx.rail.seed ^ Math.imul(salt, 0x45d9f3b), index, i);
+    const s = start + 12 + rand(808) * (end - start - 24);
+    const offset = (rand(810) > .5 ? 1 : -1) * (32 + rand(811) * 139);
+    if (isWater(ctx, s, offset) ||
+        isVillageClearing(ctx.rail.seed, index, s, offset)) continue;
+    const grade = Math.abs(ctx.landscape.height(s, offset + 3) -
+      ctx.landscape.height(s, offset - 3));
+    if (grade > 6) continue;
+    const kind = palette[Math.floor(rand(812) * palette.length)];
+    const creature = wildlifePrototype(kind).clone();
+    const base = basePoint(ctx, s, offset);
+    const flying = kind === "bird";
+    base.y += flying ? 9 + rand(813) * 11 : 0;
+    creature.position.copy(base);
+    creature.scale.setScalar(flying ? .8 + rand(814) * .35 :
+      .72 + rand(814) * .37);
+    creature.rotation.y = rand(815) * Math.PI * 2;
+    creature.userData = {
+      baseY: base.y, baseX: base.x, baseZ: base.z,
+      phase: rand(816) * Math.PI * 2, flying,
+      speed: .36 + rand(817) * .55, angle: creature.rotation.y,
+    };
+    ctx.chunk.group.add(creature);
+    animals.push(creature);
+  }
+  return animals;
 }

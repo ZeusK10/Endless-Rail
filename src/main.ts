@@ -4,6 +4,8 @@ import { RailPath } from "./sim/rail";
 import { TrainSimulation, type DrivingMode, type TrainType } from "./sim/train";
 import { WeatherSystem } from "./game/weather";
 import { SkySystem, formatTimeOfDay } from "./game/sky";
+import { avoidTerrain, minimumCameraY } from "./game/camera-rig";
+import { TRAIN_CAR_COUNT, TRAIN_CAR_SPACING } from "./game/constants";
 import { WorldStream } from "./world/world";
 import { TrainView } from "./game/train-view";
 import { Controls } from "./game/controls";
@@ -19,8 +21,8 @@ function element<T extends HTMLElement>(id: string): T {
 const container = element<HTMLDivElement>("app");
 const scene = new THREE.Scene();
 scene.background = new THREE.Color("#c9e9ff");
-scene.fog = new THREE.Fog("#c9e9ff", 170, 690);
-const camera = new THREE.PerspectiveCamera(62, 1, 0.1, 1100);
+scene.fog = new THREE.Fog("#c9e9ff", 220, 1350);
+const camera = new THREE.PerspectiveCamera(62, 1, 0.1, 2400);
 const renderer = new THREE.WebGLRenderer({
   antialias: true, powerPreference: "high-performance",
 });
@@ -88,6 +90,11 @@ const freeControls = element<HTMLElement>("free-controls");
 const cameraValue = element<HTMLElement>("camera-value");
 const controlHint = element<HTMLElement>("control-hint");
 const settingsButton = element<HTMLButtonElement>("settings-button");
+const hudMain = element<HTMLElement>("hud-main");
+const hudCollapsed = element<HTMLElement>("hud-collapsed");
+const hudCollapseButton = element<HTMLButtonElement>("hud-collapse");
+const hudExpandButton = element<HTMLButtonElement>("hud-expand");
+const compactSpeed = element<HTMLElement>("compact-speed");
 const settingsClose = element<HTMLButtonElement>("settings-close");
 const settingsScrim = element<HTMLButtonElement>("settings-scrim");
 const settingsDrawer = element<HTMLElement>("settings-drawer");
@@ -99,16 +106,19 @@ const modeButtons = Array.from(document.querySelectorAll<HTMLButtonElement>("[da
 let playing = false;
 let paused = false;
 let settingsOpen = false;
+let topCollapsed = false;
+let lastSettingsTrigger: HTMLButtonElement = settingsButton;
 let cameraMode = 0;
+let previousCameraMode = -1;
 let cameraYaw = 0;
 let cameraPitch = 0;
 let freeCamera = false;
 let freeYaw = 0;
 let freePitch = 0;
-const freePosition = new THREE.Vector3();
-const flyDirection = new THREE.Vector3();
-const flySide = new THREE.Vector3();
-const flyMovement = new THREE.Vector3();
+let freeAnchorForward = -18;
+let freeAnchorSide = 0;
+let freeAnchorHeight = 9;
+const lookDirection = new THREE.Vector3();
 let lastTime = 0;
 let accumulator = 0;
 let quality = 1;
@@ -154,6 +164,24 @@ adaptiveQualityToggle.addEventListener("change", () => {
 });
 resize();
 
+function syncDrivingPanels(): void {
+  hudMain.hidden = topCollapsed;
+  hudCollapsed.hidden = !topCollapsed;
+  touchControls.hidden = !playing || paused || freeCamera;
+  freeControls.hidden = !playing || paused || !freeCamera;
+}
+
+hudCollapseButton.addEventListener("click", () => {
+  topCollapsed = true;
+  syncDrivingPanels();
+  hudExpandButton.focus();
+});
+hudExpandButton.addEventListener("click", () => {
+  topCollapsed = false;
+  syncDrivingPanels();
+  hudCollapseButton.focus();
+});
+
 function setSettings(open: boolean): void {
   settingsOpen = open && playing && !paused;
   settingsDrawer.classList.toggle("is-open", settingsOpen);
@@ -162,10 +190,13 @@ function setSettings(open: boolean): void {
   settingsButton.setAttribute("aria-expanded", String(settingsOpen));
   settingsScrim.hidden = !settingsOpen;
   if (settingsOpen) settingsClose.focus();
-  else if (settingsDrawer.contains(document.activeElement)) settingsButton.focus();
+  else if (settingsDrawer.contains(document.activeElement)) lastSettingsTrigger.focus();
 }
 
-settingsButton.addEventListener("click", () => setSettings(!settingsOpen));
+settingsButton.addEventListener("click", () => {
+  lastSettingsTrigger = settingsButton;
+  setSettings(!settingsOpen);
+});
 settingsClose.addEventListener("click", () => setSettings(false));
 settingsScrim.addEventListener("click", () => setSettings(false));
 trainTypeSelect.addEventListener("change", () => {
@@ -233,9 +264,8 @@ function start(): void {
   setSettings(false);
   startScreen.hidden = true;
   hud.hidden = false;
-  touchControls.hidden = false;
-  freeControls.hidden = true;
   pauseScreen.hidden = true;
+  syncDrivingPanels();
   audio.start();
   lastTime = 0;
 }
@@ -245,8 +275,7 @@ function setPause(value: boolean): void {
   paused = value;
   if (paused) setSettings(false);
   pauseScreen.hidden = !paused;
-  touchControls.hidden = paused || freeCamera;
-  freeControls.hidden = paused || !freeCamera;
+  syncDrivingPanels();
   if (!paused) audio.start();
 }
 
@@ -267,86 +296,133 @@ trainView.update(0, 0, 0, world.originPoint);
 function setFreeCamera(enabled: boolean): void {
   if (enabled === freeCamera) return;
   freeCamera = enabled;
+  if (!enabled) previousCameraMode = -1;
   if (enabled) {
-    freePosition.copy(camera.position).add(world.originPoint);
-    const gaze = new THREE.Vector3();
-    camera.getWorldDirection(gaze);
-    freeYaw = Math.atan2(-gaze.x, -gaze.z);
-    freePitch = Math.asin(THREE.MathUtils.clamp(gaze.y, -1, 1));
+    const at = rail.point(simulation.distance);
+    const tangent = rail.tangent(simulation.distance);
+    const lateral = rail.side(simulation.distance);
+    const delta = camera.position.clone().add(world.originPoint).sub(at);
+    freeAnchorForward = delta.dot(tangent);
+    freeAnchorSide = delta.dot(lateral);
+    freeAnchorHeight = delta.y - freeAnchorForward * tangent.y;
+    camera.getWorldDirection(lookDirection);
+    const trainYaw = Math.atan2(-tangent.x, -tangent.z);
+    freeYaw = Math.atan2(-lookDirection.x, -lookDirection.z) - trainYaw;
+    freePitch = Math.asin(THREE.MathUtils.clamp(lookDirection.y, -1, 1));
   }
-  touchControls.hidden = paused || enabled;
-  freeControls.hidden = paused || !enabled;
-  cameraValue.textContent = enabled ? "FREE FLY" : "TRAIN VIEW";
-  freeCamButton.textContent = enabled ? "Return to train view" : "Enter free camera";
+  syncDrivingPanels();
+  cameraValue.textContent = enabled ? "FREE LOOK" : "TRAIN VIEW";
+  freeCamButton.textContent = enabled ? "Exit free look" : "Enter free look";
   controlHint.textContent = enabled
-    ? "FREE CAM · WASD move · Space/Shift altitude · Drag/right stick look · V exit"
+    ? "FREE LOOK · drag/right stick look · WASD turn · V exit"
     : "W throttle · Q reduce · S brake · H horn · R/F direction · C views · ⚙ Settings · Esc pause";
 }
 
 function moveFreeCamera(input: ReturnType<Controls["read"]>, dt: number): void {
-  freeYaw -= (input.cameraX * dt * 2 + input.pointerX * 0.004) * cameraSensitivity;
+  // No positional movement: free look is anchored to a chosen train camera.
+  freeYaw -= (input.cameraX * dt * 2 + input.pointerX * 0.004 +
+    input.flyStrafe * dt * 1.6) * cameraSensitivity;
   freePitch = THREE.MathUtils.clamp(
-    freePitch - (input.cameraY * dt * 1.7 + input.pointerY * 0.004) * cameraSensitivity, -1.47, 1.47);
-  flyDirection.set(-Math.sin(freeYaw), 0, -Math.cos(freeYaw));
-  flySide.set(Math.cos(freeYaw), 0, -Math.sin(freeYaw));
-  flyMovement.copy(flyDirection).multiplyScalar(input.flyForward)
-    .addScaledVector(flySide, input.flyStrafe);
-  flyMovement.y = input.flyVertical;
-  if (flyMovement.lengthSq() > 1) flyMovement.normalize();
-  freePosition.addScaledVector(flyMovement, dt * (input.flyFast ? 80 : 28));
+    freePitch - (input.cameraY * dt * 1.7 + input.pointerY * 0.004 -
+      input.flyForward * dt * 1.4) * cameraSensitivity, -1.4, 1.4);
 }
 
 function updateCamera(dt: number): void {
-  if (freeCamera) {
-    camera.position.copy(freePosition).sub(world.originPoint);
-    flyDirection.set(
-      -Math.sin(freeYaw) * Math.cos(freePitch),
-      Math.sin(freePitch),
-      -Math.cos(freeYaw) * Math.cos(freePitch));
-    camera.lookAt(camera.position.clone().add(flyDirection));
-    return;
-  }
   const s = simulation.distance;
   const origin = world.originPoint;
   target.copy(rail.point(s)).sub(origin);
   forward.copy(rail.tangent(s));
   side.copy(rail.side(s));
-  if (cameraMode === 0) {
+  const tunnel = rail.featureAt(s) === "tunnel" && rail.featureStrength(s) > .28;
+  const anchor = rail.point(s).add(new THREE.Vector3(0, 3.4, 0));
+  let aim = target.clone().addScaledVector(forward, 8);
+  aim.y += 2.8;
+
+  if (freeCamera) {
     desiredCamera.copy(target)
-      .addScaledVector(forward, -17 * Math.cos(cameraYaw))
-      .addScaledVector(side, 17 * Math.sin(cameraYaw));
+      .addScaledVector(forward, freeAnchorForward)
+      .addScaledVector(side, freeAnchorSide);
+    desiredCamera.y = target.y + freeAnchorForward * forward.y + freeAnchorHeight;
+    if (tunnel) {
+      const safeSide = THREE.MathUtils.clamp(freeAnchorSide, -3.7, 3.7);
+      desiredCamera.copy(target).addScaledVector(forward, freeAnchorForward)
+        .addScaledVector(side, safeSide);
+      desiredCamera.y = THREE.MathUtils.clamp(desiredCamera.y, target.y + 2.5, target.y + 5.6);
+    }
+    const safe = tunnel ? desiredCamera : avoidTerrain(anchor,
+      desiredCamera.clone().add(origin), rail, world, 1.8).sub(origin);
+    camera.position.lerp(safe, 1 - Math.exp(-7 * Math.min(dt, .1)));
+    const yaw = freeYaw + Math.atan2(-forward.x, -forward.z);
+    lookDirection.set(-Math.sin(yaw) * Math.cos(freePitch),
+      Math.sin(freePitch), -Math.cos(yaw) * Math.cos(freePitch));
+    camera.lookAt(camera.position.clone().add(lookDirection));
+    return;
+  }
+
+  if (cameraMode === 0) {
+    desiredCamera.copy(target).addScaledVector(forward,
+      -(TRAIN_CAR_COUNT + 1.25) * TRAIN_CAR_SPACING * Math.cos(cameraYaw))
+      .addScaledVector(side, (TRAIN_CAR_COUNT + 1.25) * TRAIN_CAR_SPACING * Math.sin(cameraYaw));
     desiredCamera.y += 9 + cameraPitch * 5;
   } else if (cameraMode === 1) {
-    desiredCamera.copy(target).addScaledVector(side, 21);
-    desiredCamera.y += 9;
+    desiredCamera.copy(target).addScaledVector(forward, -14);
+    desiredCamera.y += 22;
   } else if (cameraMode === 2) {
-    desiredCamera.copy(target).addScaledVector(forward, 19);
+    desiredCamera.copy(target).addScaledVector(side, 22);
     desiredCamera.y += 8;
   } else if (cameraMode === 3) {
-    desiredCamera.copy(target).addScaledVector(forward, 2.1);
-    desiredCamera.y += 4.2;
+    desiredCamera.copy(target).addScaledVector(forward, 19);
+    desiredCamera.y += 7.5;
   } else if (cameraMode === 4) {
-    desiredCamera.copy(target).addScaledVector(side, 38)
-      .addScaledVector(forward, 15);
-    desiredCamera.y += 5.5;
+    // Behind the locomotive windshield, not embedded in the solid hood.
+    desiredCamera.copy(target).addScaledVector(forward, -2.55).addScaledVector(side, .40);
+    desiredCamera.y += 4.05;
+    aim.copy(target).addScaledVector(forward, 32);
+    aim.y += 3.1;
   } else {
-    desiredCamera.copy(target).addScaledVector(forward, -34)
-      .addScaledVector(side, Math.sin(simulation.distance / 75) * 24);
-    desiredCamera.y += 16;
+    // A seated, side-facing view in the first passenger coach.
+    desiredCamera.copy(rail.point(s - TRAIN_CAR_SPACING)).sub(origin)
+      .addScaledVector(side, .7);
+    desiredCamera.y += 2.95;
+    aim.copy(desiredCamera).addScaledVector(side, 19).addScaledVector(forward, 5);
+    aim.y += 1.0;
   }
-  const aim = target.clone().addScaledVector(forward, cameraMode === 3 ? 28 : 7);
-  aim.y += cameraMode === 3 ? 3.3 : 2.2;
-  const alpha = 1 - Math.exp(-6 * Math.min(dt, 0.1));
-  if (camera.position.distanceTo(desiredCamera) > 150) {
+
+  if (tunnel && cameraMode < 4) {
+    // Keep each camera's distinctive view inside the bore. A previous shared
+    // fallback put every mode behind the final coach facing its back.
+    const tunnelLongitudinal = [-48, -17, -8, 15][cameraMode];
+    const tunnelSide = cameraMode === 2 ? 3.6 : 0;
+    desiredCamera.copy(target).addScaledVector(forward, tunnelLongitudinal)
+      .addScaledVector(side, tunnelSide);
+    desiredCamera.y = target.y + (cameraMode === 1 ? 5.65 : 4.25);
+    aim.copy(target).addScaledVector(forward, cameraMode === 3 ? 30 : 8);
+    aim.y += 3.45;
+  }
+  if (cameraMode < 4 && !tunnel) {
+    desiredCamera.copy(avoidTerrain(anchor, desiredCamera.clone().add(origin),
+      rail, world, 1.75).sub(origin));
+  } else if (!tunnel) {
+    const worldPosition = desiredCamera.clone().add(origin);
+    desiredCamera.y = Math.max(desiredCamera.y,
+      minimumCameraY(worldPosition, rail, world, 1.6) - origin.y);
+  }
+  const alpha = 1 - Math.exp(-6 * Math.min(dt, .1));
+  if (camera.position.distanceTo(desiredCamera) > 150 ||
+      previousCameraMode !== cameraMode) {
+    // Switching directly to a preset never sweeps the camera through coaches.
     camera.position.copy(desiredCamera);
   } else {
     camera.position.lerp(desiredCamera, alpha);
   }
+  previousCameraMode = cameraMode;
+  trainView.setInteriorCameraMode(cameraMode);
   camera.lookAt(aim);
 }
 
 function updateInterface(): void {
   speedValue.textContent = String(Math.round(simulation.speedKmh));
+  compactSpeed.textContent = String(Math.round(simulation.speedKmh));
   distanceValue.textContent = (simulation.traveled / 1000).toFixed(1);
   modeValue.textContent = simulation.mode.toUpperCase();
   cruiseTarget.hidden = simulation.mode !== "cruise";
@@ -482,13 +558,18 @@ renderer.setAnimationLoop((time) => {
     }
   }
 
-  world.update(simulation.distance, simulation.speed,
-    freeCamera ? -freePosition.z : undefined);
+  world.update(simulation.distance, simulation.speed);
   trainView.update(simulation.distance, simulation.speed, dt, world.originPoint,
     simulation.throttle, simulation.derailed, playing && !paused);
   updateCamera(Math.max(dt, 1 / 60));
   weather.update(simulation.distance, playing && !paused ? dt : 0);
   sky.update(dt, playing && !paused, weather.rainAmount, weather.mistAmount);
+  // Ambient daylight fades inside a rock-lined bore; locomotive lamps remain.
+  const tunnelDarkness = rail.featureAt(simulation.distance) === "tunnel"
+    ? THREE.MathUtils.smoothstep(rail.featureStrength(simulation.distance), .14, .8)
+    : 0;
+  ambientLight.intensity *= 1 - tunnelDarkness * .73;
+  sunlight.intensity *= 1 - tunnelDarkness * .94;
   audio.update({
     speedKmh: simulation.speedKmh,
     throttle: simulation.throttle,
@@ -503,5 +584,6 @@ renderer.setAnimationLoop((time) => {
     lastHudUpdate = time;
     updateInterface();
   }
+  if (playing && !paused) world.animateWildlife(time / 1000);
   renderer.render(scene, camera);
 });

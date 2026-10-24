@@ -43,13 +43,15 @@ export class Landscape {
     const brokenRock = (this.noise(s / 37 + 14, offset / 33 - 5, 83) - 0.5) * 7;
     const sharpRidges = Math.pow(this.noise(s / 105, offset / 80, 91), 4) * 12;
     const biome = biomeAt(s);
+    const distantMountains = Math.pow(Math.max(0, (away - 130) / 510), 1.28) *
+      (28 + this.noise(s / 710, offset / 420, 144) * 77);
     const transition = biomeBlend(s);
     const lakesideWeight = (transition.from === "lakeside" ? 1 - transition.blend : 0) +
       (transition.to === "lakeside" ? transition.blend : 0);
     const lakesideValley = -4.5 * lakesideWeight;
     let height = track + corridor * (
       rolling + secondary + ridges + gullies + brokenRock +
-      sharpRidges + lakesideValley);
+      sharpRidges + distantMountains + lakesideValley);
 
     // Bridges cross actual depressions; tunnel and cutting sections reshape
     // the surrounding hills while preserving a safe excavated rail corridor.
@@ -58,31 +60,120 @@ export class Landscape {
     if (feature === "bridge") {
       height -= 17 * strength * (1 - smooth(16, 62, away));
     } else if (feature === "tunnel") {
-      const bank = smooth(6, 22, away) * (1 - smooth(74, 120, away));
-      height += 19 * strength * bank;
+      // The mountain is a landform *before* excavation. Do not taper both
+      // flanks down to track level at the portal as featureStrength ramps up.
+      // Neighbor samples carry the same mountain mass to the tunnel mouth.
+      const mountain = this.tunnelMountainStrength(s);
+      const bank = smooth(6, 17, away) * (1 - smooth(114, 188, away));
+      const rockWall = 16 + 7 * this.noise(s / 115, offset / 91, 192);
+      height = Math.max(height + rockWall * mountain * bank,
+        track + 15.5 * mountain * bank);
     } else if (feature === "cutting") {
       const bank = smooth(8, 27, away) * (1 - smooth(59, 96, away));
       height += 12 * strength * bank;
     }
 
-    // Shorelines carve into the same height field, so water never floats
-    // over ordinary hills. Lakes always regenerate at the same coordinates.
-    const index = Math.floor(s / CHUNK_LENGTH);
-    if (biome === "lakeside" && ((index % 5) + 5) % 5 === 1) {
-      const lake = this.lake(index);
-      const radius = Math.hypot(
-        (s - lake.s) / 78, (offset - lake.offset) / 60);
-      const carve = 1 - smooth(0.75, 1.28, radius);
-      height = THREE.MathUtils.lerp(
-        height, Math.min(height, lake.waterY - 1.6), carve);
+    // A real water channel cuts across each guaranteed bridge corridor.
+    // The meandering path is sampled in rail coordinates on BOTH sides of a
+    // chunk boundary; water is always below the bridge deck.
+    const river = this.river(s, offset);
+    if (river) {
+      const carve = 1 - smooth(22, 72, Math.abs(s - river.centerS));
+      height = THREE.MathUtils.lerp(height,
+        Math.min(height, river.waterY - 1.5), carve);
+    }
+    const lake = this.nearestLake(s);
+    if (lake) {
+      const normalized = Math.hypot((s - lake.s) / lake.lengthRadius,
+        (offset - lake.offset) / lake.widthRadius);
+      const carve = 1 - smooth(.96, 1.28, normalized);
+      height = THREE.MathUtils.lerp(height,
+        Math.min(height, lake.waterY - 1.7), carve);
+    }
+    const reservoir = this.underwaterLake(s);
+    if (reservoir) {
+      const normalized = Math.hypot((s - reservoir.s) / reservoir.lengthRadius,
+        (offset - reservoir.offset) / reservoir.widthRadius);
+      const carve = 1 - smooth(.92, 1.23, normalized);
+      height = THREE.MathUtils.lerp(height,
+        Math.min(height, reservoir.waterY - 1.3), carve);
     }
     return height;
   }
 
-  lake(index: number): { s: number; offset: number; waterY: number } {
-    const s = index * CHUNK_LENGTH + CHUNK_LENGTH * 0.5;
-    const offset = (hash(this.rail.seed + 51, index) > 0.5 ? 1 : -1) * 98;
-    return { s, offset, waterY: this.rail.point(s).y - 3.2 };
+  /** Geological mountain relief remains high at both tunnel entrances. */
+  tunnelMountainStrength(s: number): number {
+    if (this.rail.featureAt(s) !== "tunnel") return 0;
+    const mass = Math.max(
+      this.rail.featureStrength(s),
+      this.rail.featureAt(s + 65) === "tunnel" ?
+        this.rail.featureStrength(s + 65) * .95 : 0,
+      this.rail.featureAt(s - 65) === "tunnel" ?
+        this.rail.featureStrength(s - 65) * .95 : 0,
+    );
+    return smooth(.03, .61, mass);
+  }
+
+  /** Stable river path that crosses the railway at a planned bridge. */
+  river(s: number, offset: number): { centerS: number; waterY: number; halfWidth: number } | null {
+    const sector = Math.round((s - 750) / 1550);
+    const origin = sector * 1550 + 750;
+    if (this.rail.featureAt(origin) !== "bridge") return null;
+    const centerS = origin +
+      Math.sin(offset / 106 + hash(this.rail.seed, sector, 881) * 6.28) * 42 +
+      Math.sin(offset / 46 + sector) * 10;
+    if (Math.abs(s - centerS) > 80) return null;
+    return {
+      centerS,
+      waterY: this.rail.point(origin).y - 5.0,
+      halfWidth: 20 + hash(this.rail.seed, sector, 882) * 7,
+    };
+  }
+
+  // Larger water bodies appear in every biome, with wider shorelines in the
+  // lakeside valley. Their centers are independent of streamed chunks.
+  lake(index: number): {
+    s: number; offset: number; waterY: number; lengthRadius: number; widthRadius: number;
+  } {
+    const s = index * 3650 + 1100;
+    const biome = biomeAt(s);
+    const size = biome === "lakeside" ? 1.18 : biome === "cherry" ? .78 : 1;
+    const widthRadius = (112 + hash(this.rail.seed, index, 994) * 30) * size;
+    // Keep a dry natural embankment between open rails and the lake shore.
+    // The former center offset was narrower than the lake radius and flooded
+    // ordinary railway sections without any corresponding bridge.
+    const offset = (hash(this.rail.seed, index, 991) > .5 ? 1 : -1) *
+      (widthRadius + 42 + hash(this.rail.seed, index, 992) * 22);
+    return {
+      s, offset, waterY: this.rail.point(s).y - 5.1,
+      lengthRadius: (190 + hash(this.rail.seed, index, 993) * 48) * size,
+      widthRadius,
+    };
+  }
+
+  /** Submerged tunnels are deferred until a watertight excavation mesh exists.
+   * A flat reservoir over the old overburden leaked through tunnel portals.
+   */
+  underwaterLake(_s: number): ReturnType<Landscape["lake"]> | null {
+    return null;
+  }
+
+  nearestLake(s: number): ReturnType<Landscape["lake"]> | null {
+    const index = Math.round((s - 1100) / 3650);
+    if (index < 0) return null;
+    const lake = this.lake(index);
+    return Math.abs(s - lake.s) < lake.lengthRadius * 1.26 ? lake : null;
+  }
+
+  isWater(s: number, offset: number): boolean {
+    const river = this.river(s, offset);
+    if (river && Math.abs(s - river.centerS) < river.halfWidth) return true;
+    const lake = this.nearestLake(s);
+    if (lake && Math.hypot((s - lake.s) / lake.lengthRadius,
+      (offset - lake.offset) / lake.widthRadius) < 1) return true;
+    const reservoir = this.underwaterLake(s);
+    return reservoir !== null && Math.hypot((s - reservoir.s) / reservoir.lengthRadius,
+      offset / reservoir.widthRadius) < 1;
   }
 
   /** Tiny-scale noise for meadow color, rock outcrops and forest clusters. */

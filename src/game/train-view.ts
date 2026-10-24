@@ -47,6 +47,10 @@ const litGlass = new THREE.MeshStandardMaterial({
   color: "#ffe8ae", roughness: 0.35,
   emissive: "#ffdc83", emissiveIntensity: 1.4,
 });
+const windowsOff = new THREE.MeshStandardMaterial({
+  color: "#d4d7c9", metalness: .2, roughness: .43,
+  emissive: "#000000", emissiveIntensity: 0,
+});
 
 function box(
   root: THREE.Group, size: [number, number, number],
@@ -126,11 +130,32 @@ function detailsAtEnds(group: THREE.Group, length: number): void {
   }
 }
 
+const beamGeometry = new THREE.ConeGeometry(8.5, 38, 16, 1, true);
+beamGeometry.rotateX(Math.PI / 2);
+const beamMaterial = new THREE.MeshBasicMaterial({
+  color: "#fff4ce", transparent: true, opacity: .07,
+  depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
+});
+function fitHeadlamp(group: THREE.Group, x: number, y: number, z: number,
+  color: string): { headlamp: THREE.SpotLight; beam: THREE.Mesh } {
+  const headlamp = new THREE.SpotLight(color, 85, 85, .2, .75, 1.7);
+  headlamp.position.set(x, y, z - .08);
+  headlamp.target.position.set(x, y - 2.5, z - 60);
+  group.add(headlamp, headlamp.target);
+  const beam = new THREE.Mesh(beamGeometry, beamMaterial);
+  // Cone tip coincides exactly with the illuminated bulb surface.
+  beam.position.set(x, y, z - 19);
+  beam.name = "forward-headlight-beam";
+  group.add(beam);
+  return { headlamp, beam };
+}
+
 interface Car {
   group: THREE.Group;
   wheels: THREE.Group[];
   lights?: THREE.Mesh[];
-  headlamp?: THREE.PointLight;
+  headlamps?: THREE.SpotLight[];
+  beams?: THREE.Mesh[];
   exhaust?: THREE.Group[];
 }
 
@@ -138,13 +163,14 @@ function locomotive(): Car {
   const group = new THREE.Group();
   const wheels: THREE.Group[] = [];
   const lights: THREE.Mesh[] = [];
+  const headlamps: THREE.SpotLight[] = [], beams: THREE.Mesh[] = [];
   const exhaust: THREE.Group[] = [];
 
   // Distinct hood and rear driving cab, on a stepped underframe.
   box(group, [3.22, 0.37, 8.3], [0, 1.36, 0], graphite);
   box(group, [3.12, 0.24, 8.55], [0, 1.18, 0], metal);
   box(group, [2.62, 2.28, 4.75], [0, 2.65, -1.42], teal);
-  box(group, [2.84, 2.44, 2.52], [0, 2.91, 2.55], cream);
+  box(group, [2.84, 2.44, 2.52], [0, 2.91, 2.55], cream).name = "cab-exterior-shell";
   box(group, [3.07, 0.28, 2.84], [0, 4.27, 2.55], graphite);
   box(group, [2.84, 0.13, 4.85], [0, 3.87, -1.42], blue);
 
@@ -191,7 +217,7 @@ function locomotive(): Car {
   // Two front windshields, a center divider and simple wipers.
   for (const x of [-0.70, 0.70]) {
     box(group, [1.26, 1.04, 0.08],
-      [x, 3.34, 1.25], glass);
+      [x, 3.34, 1.25], glass).name = "interior-window";
     const wiper = box(group, [0.79, 0.035, 0.09],
       [x, 3.0, 1.17], graphite);
     wiper.rotation.z = x < 0 ? 0.25 : -0.25;
@@ -215,24 +241,40 @@ function locomotive(): Car {
       [-1.1 + i * 0.43, 4.1, -2.85], metal);
   }
 
+  // Driver cab furnishings: two seats, control stand, dashboard and gauges.
+  for (const x of [-.8, .8]) {
+    box(group, [.67, .18, .75], [x, 2.05, 2.65], dark);
+    box(group, [.67, .83, .15], [x, 2.50, 3.03], graphite);
+    box(group, [.1, .8, .1], [x, 1.66, 2.65], metal);
+  }
+  box(group, [2.25, .22, .75], [0, 2.65, 1.34], graphite);
+  for (const x of [-.65, -.2, .25, .7]) {
+    box(group, [.22, .09, .12], [x, 2.81, 1.14], brass);
+  }
+
   // Front and rear headlamps and low-mounted marker lights.
   for (const x of [-1.0, 1.0]) {
     const lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.23, 0.23, 0.16, 10), litGlass);
     lamp.rotation.x = Math.PI / 2;
     lamp.position.set(x, 2.38, -4.22);
     group.add(lamp);
+    lamp.name = "headlight-fixture";
     lights.push(lamp);
+    const source = fitHeadlamp(group, x, 2.38, -4.22, "#ffe6b4");
+    headlamps.push(source.headlamp);
+    beams.push(source.beam);
     box(group, [0.12, 0.14, 0.15], [x, 1.72, -4.24], brass);
   }
   const highLamp = new THREE.Mesh(
     new THREE.CylinderGeometry(0.31, 0.31, 0.12, 12), litGlass);
   highLamp.rotation.x = Math.PI / 2;
-  highLamp.position.set(0, 4.02, 1.21);
+  highLamp.position.set(0, 4.02, -4.22);
   group.add(highLamp);
+  highLamp.name = "headlight-fixture";
   lights.push(highLamp);
-  const headlamp = new THREE.PointLight("#ffe6b4", 4.2, 17, 2);
-  headlamp.position.set(0, 2.4, -4.2);
-  group.add(headlamp);
+  const elevatedSource = fitHeadlamp(group, 0, 4.02, -4.22, "#ffe6b4");
+  headlamps.push(elevatedSource.headlamp);
+  beams.push(elevatedSource.beam);
 
   // Front pilot, handhold and air hoses.
   box(group, [3.20, 0.45, 0.45], [0, 0.86, -4.20], scarlet);
@@ -243,15 +285,16 @@ function locomotive(): Car {
   }
   detailsAtEnds(group, 8.25);
   bogies(group, [-2.53, 2.53], wheels);
-  return { group, wheels, lights, headlamp, exhaust };
+  return { group, wheels, lights, headlamps, beams, exhaust };
 }
 
 function electricLocomotive(): Car {
   const group = new THREE.Group();
   const wheels: THREE.Group[] = [];
   const lights: THREE.Mesh[] = [];
+  const headlamps: THREE.SpotLight[] = [], beams: THREE.Mesh[] = [];
   box(group, [3.2, .42, 8.4], [0, 1.4, 0], graphite);
-  box(group, [3.12, 2.55, 7.9], [0, 2.93, 0], blue);
+  box(group, [3.12, 2.55, 7.9], [0, 2.93, 0], blue).name = "cab-exterior-shell";
   box(group, [3.2, .36, 8.2], [0, 2.25, 0], stripe);
   box(group, [3.16, .22, 8.0], [0, 4.26, 0], graphite);
   for (const side of [-1, 1]) {
@@ -273,14 +316,21 @@ function electricLocomotive(): Car {
     const lamp = new THREE.Mesh(new THREE.SphereGeometry(.24, 8, 6), litGlass);
     lamp.position.set(x, 2.3, -4.06);
     group.add(lamp);
+    lamp.name = "headlight-fixture";
     lights.push(lamp);
+    const source = fitHeadlamp(group, x, 2.3, -4.06, "#fff0c2");
+    headlamps.push(source.headlamp);
+    beams.push(source.beam);
   }
-  const headlamp = new THREE.PointLight("#fff0c2", 4.2, 18, 2);
-  headlamp.position.set(0, 2.5, -4.2);
-  group.add(headlamp);
+  // Reused cab consoles make the seated driving view recognizable.
+  box(group, [2.2, .25, .74], [0, 2.73, -3.47], graphite);
+  for (const x of [-.8, .8]) {
+    box(group, [.65, .18, .7], [x, 2.03, -2.48], dark);
+    box(group, [.65, .65, .18], [x, 2.40, -2.12], blue);
+  }
   bogies(group, [-2.42, 2.42], wheels);
   detailsAtEnds(group, 8.0);
-  return { group, wheels, lights, headlamp, exhaust: [] };
+  return { group, wheels, lights, headlamps, beams, exhaust: [] };
 }
 
 function steamLocomotive(): Car {
@@ -293,7 +343,7 @@ function steamLocomotive(): Car {
   boiler.rotation.x = Math.PI / 2;
   boiler.position.set(0, 2.78, -1.1);
   group.add(boiler);
-  box(group, [2.95, 2.6, 2.55], [0, 2.83, 2.65], burgundy);
+  box(group, [2.95, 2.6, 2.55], [0, 2.83, 2.65], burgundy).name = "cab-exterior-shell";
   box(group, [3.17, .20, 2.75], [0, 4.29, 2.65], graphite);
   for (const x of [-.73, .73]) {
     box(group, [1.18, 1.05, .09], [x, 3.30, 1.32], glass);
@@ -315,11 +365,12 @@ function steamLocomotive(): Car {
   lamp.position.set(0, 3.18, -4.1);
   group.add(lamp);
   lights.push(lamp);
-  const headlamp = new THREE.PointLight("#ffddac", 4.2, 19, 2);
-  headlamp.position.set(0, 3.2, -4.2);
-  group.add(headlamp);
+  const { headlamp, beam } = fitHeadlamp(group, 0, 3.18, -4.1, "#ffddac");
+  box(group, [2.05, .27, .65], [0, 2.75, 1.35], graphite);
+  box(group, [.8, .2, .76], [-.6, 2.12, 2.56], burgundy);
+  box(group, [.8, .76, .16], [-.6, 2.55, 2.92], dark);
   bogies(group, [-2.4, 2.4], wheels);
-  return { group, wheels, lights, headlamp, exhaust };
+  return { group, wheels, lights, headlamps: [headlamp], beams: [beam], exhaust };
 }
 
 function carriage(index: number): Car {
@@ -329,7 +380,7 @@ function carriage(index: number): Car {
   const accent = index % 2 ? cream : stripe;
 
   box(group, [3.13, 0.32, 7.7], [0, 1.39, 0], graphite);
-  box(group, [3.02, 2.28, 7.32], [0, 2.70, 0], color);
+  box(group, [3.02, 2.28, 7.32], [0, 2.70, 0], color).name = "coach-exterior-shell";
   box(group, [3.06, 0.13, 7.5], [0, 2.02, 0], accent);
   box(group, [3.06, 0.16, 7.5], [0, 3.79, 0], cream);
   const roof = new THREE.Mesh(roofShape, graphite);
@@ -356,6 +407,18 @@ function carriage(index: number): Car {
         [flank * 1.70, 1.62, z], metal);
     }
     rail(group, flank * 1.55, 1.51, -3.6, 3.6, metal);
+  }
+
+  // Passenger compartment: paired seats, a clear central aisle and racks.
+  for (const z of [-2.3, -.75, .8, 2.35]) {
+    for (const x of [-.87, .87]) {
+      box(group, [.90, .19, .90], [x, 1.96, z], cream);
+      box(group, [.88, .84, .16], [x, 2.40, z + .35], dark);
+      box(group, [.10, .52, .10], [x, 1.63, z], graphite);
+    }
+  }
+  for (const x of [-1.17, 1.17]) {
+    box(group, [.20, .10, 6.2], [x, 3.57, 0], metal);
   }
 
   // Vestibule bellows, end doors, two roof ventilators and couplers.
@@ -513,7 +576,8 @@ export class TrainView {
   private readonly groups: THREE.Group[] = [];
   private readonly wheels: THREE.Group[] = [];
   private headlights: THREE.Mesh[];
-  private headlamp: THREE.PointLight;
+  private headlamps: THREE.SpotLight[];
+  private beams: THREE.Mesh[];
   private exhaust: THREE.Group[];
   private readonly locomotives: Record<TrainType, Car>;
   private activeType: TrainType = "diesel";
@@ -531,7 +595,8 @@ export class TrainView {
     this.groups.push(loco.group);
     this.wheels.push(...loco.wheels);
     this.headlights = loco.lights ?? [];
-    this.headlamp = loco.headlamp!;
+    this.headlamps = loco.headlamps ?? [];
+    this.beams = loco.beams ?? [];
     this.exhaust = loco.exhaust ?? [];
     scene.add(loco.group);
 
@@ -551,10 +616,10 @@ export class TrainView {
     this.groups[0] = next.group;
     this.wheels.splice(0, previous.wheels.length, ...next.wheels);
     this.headlights = next.lights ?? [];
-    this.headlamp = next.headlamp!;
+    this.headlamps = next.headlamps ?? [];
+    this.beams = next.beams ?? [];
     this.exhaust = next.exhaust ?? [];
-    this.headlights.forEach(mesh => { mesh.visible = this.lights; });
-    this.headlamp.intensity = this.lights ? 4.2 : 0;
+    this.updateHeadlights();
     this.scene.add(next.group);
     this.activeType = type;
   }
@@ -563,10 +628,37 @@ export class TrainView {
     this.smoke.setQuality(value);
   }
 
+  private updateHeadlights(): void {
+    // Physical bulb housings never vanish; only emission and cast beams change.
+    this.headlights.forEach(mesh => {
+      mesh.visible = true;
+      mesh.material = this.lights ? litGlass : windowsOff;
+    });
+    this.headlamps.forEach(light => { light.intensity = this.lights ? 85 : 0; });
+    this.beams.forEach(beam => { beam.visible = this.lights; });
+  }
+
   toggleLights(): void {
     this.lights = !this.lights;
-    this.headlights.forEach(mesh => { mesh.visible = this.lights; });
-    this.headlamp.intensity = this.lights ? 4.2 : 0;
+    this.updateHeadlights();
+  }
+
+  setInteriorCameraMode(mode: number): void {
+    this.groups[0].traverse(object => {
+      if (object.name === "cab-exterior-shell" || object.name === "interior-window" ||
+          (object instanceof THREE.Mesh && object.material === glass)) {
+        object.visible = mode !== 4;
+      }
+    });
+    this.groups.slice(1).forEach((group, index) => {
+      if (index !== 0) return;
+      group.traverse(object => {
+        if (object.name === "coach-exterior-shell" ||
+            (object instanceof THREE.Mesh && object.material === glass)) {
+          object.visible = mode !== 5;
+        }
+      });
+    });
   }
 
   update(

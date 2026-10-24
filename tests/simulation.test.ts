@@ -1,12 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { RailPath } from "../src/sim/rail";
-import { TrainSimulation } from "../src/sim/train";
+import { TrainSimulation, derailmentRatePerSecond, derailmentRiskLevel } from "../src/sim/train";
 import { Landscape } from "../src/world/landscape";
 import { ActivityManager } from "../src/game/activities";
-import { hash, CHUNK_LENGTH } from "../src/game/constants";
-import { populateVillage } from "../src/world/scenery";
+import { hash, CHUNK_LENGTH, biomeAt, biomeBoundary } from "../src/game/constants";
+import { populateVillage, populateWildlife, villageRegion } from "../src/world/scenery";
 import { TrainView } from "../src/game/train-view";
+import { WorldStream } from "../src/world/world";
+import { avoidTerrain, minimumCameraY } from "../src/game/camera-rig";
 import { SkySystem, daylightAt, formatTimeOfDay } from "../src/game/sky";
 import * as THREE from "three";
 
@@ -87,28 +89,86 @@ test("scenery seed salts decorrelate placement coordinates", () => {
   assert.ok(Math.abs(covariance / Math.sqrt(varianceX*varianceY)) < .16);
 });
 
-test("village houses are detailed and share cached render geometry", () => {
+test("settlements span multiple chunks with architectural detail", () => {
   const rail = new RailPath(76120);
   const landscape = new Landscape(rail);
-  const createVillage = () => {
+  const createVillage = (index: number) => {
     const chunk = {
       group: new THREE.Group(), center: new THREE.Vector3(),
       instances: [] as THREE.InstancedMesh[],
     };
-    populateVillage({ chunk, rail, landscape }, 7, 7 * CHUNK_LENGTH + CHUNK_LENGTH / 2);
+    populateVillage({ chunk, rail, landscape },
+      index, index * CHUNK_LENGTH + CHUNK_LENGTH / 2);
     return chunk.group;
   };
-  const a = createVillage(), b = createVillage();
-  const housesA = a.children.filter(item => item instanceof THREE.Group);
-  const housesB = b.children.filter(item => item instanceof THREE.Group);
-  assert.ok(housesA.length >= 7);
-  assert.equal(housesA.length, housesB.length);
-  const first = housesA[0] as THREE.Group;
-  const repeat = housesB[0] as THREE.Group;
-  assert.ok(first.children.length >= 8 && first.children.length < 30);
-  const pieces = first.children as THREE.Mesh[];
-  assert.ok(pieces.some(mesh => mesh.geometry.getAttribute("position").count > 600));
-  assert.equal(pieces[0].geometry, (repeat.children[0] as THREE.Mesh).geometry);
+  const groups = [6, 7, 8].map(index => createVillage(index));
+  for (const group of groups) {
+    const road = group.getObjectByName("terrain-following-mud-road") as THREE.Mesh;
+    assert.ok(road, "each settlement chunk needs a continuous ground-hugging road");
+    assert.ok(road.geometry.getAttribute("position").count > 60);
+  }
+  assert.equal(villageRegion(rail.seed, 5), null);
+  assert.ok(villageRegion(rail.seed, 6) && villageRegion(rail.seed, 8));
+  const counts = groups.map(group => group.children.filter(item => item instanceof THREE.Group).length);
+  assert.ok(counts.every(count => count >= 3), "each village chunk has distinct structures");
+  assert.ok(counts.reduce((a, b) => a + b, 0) >= 12, "settlement has enough structures");
+  const again = createVillage(7);
+  const a = groups[1].children.filter(item => item instanceof THREE.Group) as THREE.Group[];
+  const b = again.children.filter(item => item instanceof THREE.Group) as THREE.Group[];
+  assert.equal(a.length, b.length);
+  const detailed = a.find(item => item.children.some(part =>
+    part instanceof THREE.Mesh && part.geometry.getAttribute("position").count > 600));
+  assert.ok(detailed, "at least one house has merged facade and roof details");
+  const match = b[a.indexOf(detailed)];
+  assert.equal((detailed.children[0] as THREE.Mesh).geometry,
+    (match.children[0] as THREE.Mesh).geometry);
+});
+
+test("seeded ground animals and birds avoid water and dense village paths", () => {
+  const rail = new RailPath(81124);
+  const landscape = new Landscape(rail);
+  const setup = () => ({
+    group: new THREE.Group(), center: rail.point(120), instances: [] as THREE.InstancedMesh[],
+  });
+  const a = setup(), b = setup();
+  const first = populateWildlife({ chunk: a, rail, landscape }, 0, 0, CHUNK_LENGTH);
+  const second = populateWildlife({ chunk: b, rail, landscape }, 0, 0, CHUNK_LENGTH);
+  assert.equal(first.length, second.length);
+  for (let i = 0; i < first.length; i++) {
+    assert.deepEqual(first[i].position.toArray(), second[i].position.toArray());
+    assert.ok(first[i].children.length <= 4, "wildlife geometry is draw-call friendly");
+  }
+});
+
+test("locomotive headlights project forward and obey the light toggle", () => {
+  const scene = new THREE.Scene();
+  const view = new TrainView(scene, new RailPath(8231));
+  const activeSpot = () => {
+    let spot: THREE.SpotLight | undefined;
+    scene.traverse(object => {
+      if (object instanceof THREE.SpotLight) spot = object;
+    });
+    return spot;
+  };
+  assert.ok(activeSpot(), "the active locomotive needs a forward spotlight");
+  const spots: THREE.SpotLight[] = [];
+  scene.traverse(o => { if (o instanceof THREE.SpotLight) spots.push(o); });
+  assert.equal(spots.length, 3, "three front diesel bulbs should each emit forward");
+  assert.ok(spots.every(light => light.target.position.z < light.position.z - 20));
+  assert.ok(activeSpot()!.target.position.z < activeSpot()!.position.z - 20);
+  assert.ok(scene.getObjectByName("forward-headlight-beam")?.visible);
+  view.toggleLights();
+  const bulbs: THREE.Object3D[] = [];
+  scene.traverse(o => { if (o.name === "headlight-fixture") bulbs.push(o); });
+  assert.ok(bulbs.length >= 2, "each front locomotive lamp has a persistent bulb");
+  assert.ok(bulbs.every(bulb => bulb.visible), "switching off glow must not hide bulb fixtures");
+  assert.equal(activeSpot()!.intensity, 0);
+  assert.equal(scene.getObjectByName("forward-headlight-beam")?.visible, false);
+  view.setTrainType("steam");
+  assert.equal(activeSpot()!.intensity, 0);
+  view.toggleLights();
+  assert.ok(activeSpot()!.intensity > 0);
+  assert.equal(scene.getObjectByName("forward-headlight-beam")?.visible, true);
 });
 
 test("diesel and steam emit bounded, world-space exhaust; electric stays clean", () => {
@@ -176,4 +236,257 @@ test("time-of-day sampling, weather tint and skybox remain bounded", () => {
   const beforePause = sky.hour;
   sky.update(30, false, 0, 0);
   assert.equal(sky.hour, beforePause);
+});
+
+test("shorter variable biomes, route features and water stay reproducible", () => {
+  const first = new RailPath(18842);
+  const reversed = new RailPath(18842);
+  const terrain = new Landscape(first);
+  for (let i = 1; i <= 15; i++) {
+    const length = biomeBoundary(i) - biomeBoundary(i - 1);
+    assert.ok(length >= 1900 && length <= 3300, "biome length " + length);
+    assert.notEqual(biomeAt(biomeBoundary(i) - 10), biomeAt(biomeBoundary(i) + 10));
+  }
+  let bridges = 0, tunnels = 0;
+  for (let sector = 0; sector < 10; sector++) {
+    const s = sector * 1550 + 750;
+    const feature = first.featureAt(s);
+    if (feature === "bridge") {
+      bridges++;
+      const water = terrain.river(s, 0);
+      assert.ok(water && terrain.isWater(water.centerS, 0), "bridge must cross an actual river");
+      assert.ok(terrain.height(water.centerS, 0) < first.point(water.centerS).y - 2);
+    }
+    if (feature === "tunnel") tunnels++;
+    assert.deepEqual(first.point(s).toArray(), reversed.point(s).toArray());
+  }
+  assert.ok(bridges >= 2 && tunnels >= 2);
+  for (const s of [0, 399, 780, 1550, 3650, 6400, 9200, 17880]) {
+    assert.ok(first.point(s - .02).distanceTo(first.point(s + .02)) < .3);
+    assert.ok(Number.isFinite(terrain.height(s, 840)));
+  }
+  assert.ok(terrain.isWater(1100, terrain.lake(0).offset));
+});
+
+test("tunnels create a real continuous arch within raised terrain", () => {
+  const rail = new RailPath(71425);
+  let s = 750;
+  for (let i = 0; i < 9 && rail.featureAt(s) !== "tunnel"; i++) s += 1550;
+  assert.equal(rail.featureAt(s), "tunnel");
+  const scene = new THREE.Scene();
+  const world = new WorldStream(scene, rail);
+  world.update(s);
+  const arches: THREE.Object3D[] = [];
+  const hills: THREE.Object3D[] = [];
+  scene.traverse(o => {
+    if (o.name === "tunnel-arch") arches.push(o);
+    if (o.name === "tunnel-hillside") hills.push(o);
+  });
+  assert.ok(arches.length > 0);
+  assert.ok(hills.length > 0, "tunnel bore must be enclosed by an upper hillside");
+  assert.ok(scene.getObjectByName("dark-excavated-tunnel-floor"),
+    "terrain cutout needs an unlit excavated floor");
+  const railHeight = rail.point(s).y;
+  assert.ok(world.terrainHeight(s, 35) > railHeight + 5);
+  world.clear();
+});
+
+test("lakes preserve a dry rail corridor and tunnels do not leak water", () => {
+  const rail = new RailPath(71425);
+  const terrain = new Landscape(rail);
+  for (let i = 0; i < 10; i++) {
+    const lake = terrain.lake(i);
+    assert.ok(Math.abs(lake.offset) > lake.widthRadius + 40,
+      "lake shore must stay outside ordinary track");
+    assert.equal(terrain.isWater(lake.s, 0), false);
+    assert.ok(terrain.height(lake.s, lake.offset) < lake.waterY,
+      "water must be inside a carved basin");
+  }
+  for (let sector = 0; sector < 75; sector++) {
+    const s = sector * 1550 + 750;
+    if (rail.featureAt(s) === "tunnel") {
+      assert.equal(terrain.underwaterLake(s), null,
+        "unsealed underwater sections stay disabled");
+    }
+  }
+});
+
+test("camera terrain sweep retracts and preserves safe clearance", () => {
+  const rail = new RailPath(7124);
+  const scene = new THREE.Scene();
+  const world = new WorldStream(scene, rail);
+  const anchor = rail.point(780).add(new THREE.Vector3(0, 5, 0));
+  const wanted = anchor.clone().addScaledVector(rail.side(780), 110);
+  wanted.y = -80;
+  const safe = avoidTerrain(anchor, wanted, rail, world);
+  assert.ok(safe.distanceTo(anchor) < wanted.distanceTo(anchor));
+  assert.ok(safe.y >= minimumCameraY(safe, rail, world));
+  world.clear();
+});
+
+test("rail uses shaped steel profiles, contiguous ballast and shared fasteners", () => {
+  const rail = new RailPath(4442);
+  const scene = new THREE.Scene();
+  const world = new WorldStream(scene, rail);
+  world.setDensity(.45);
+  world.setViewScale(.58);
+  world.update(0);
+  const profile = scene.getObjectByName("rail-profile") as THREE.Mesh;
+  const ballast = scene.getObjectByName("gravel-ballast") as THREE.Mesh;
+  const fasteners = scene.getObjectByName("fasteners") as THREE.InstancedMesh;
+  assert.ok(profile && ballast && fasteners);
+  assert.ok(profile.geometry.getAttribute("position").count >= 1000);
+  assert.ok(ballast.geometry.getAttribute("color").count > 500);
+  assert.ok(fasteners.count >= 250);
+  world.clear();
+});
+
+test("calibrated derailment hazard matches its displayed 10-second probability", () => {
+  const safe = derailmentRiskLevel(65, 85, .00045, 0);
+  const unsafe = derailmentRiskLevel(112, 48, .00055, .86);
+  assert.ok(safe < .01);
+  assert.ok(unsafe > .75);
+  assert.ok(derailmentRatePerSecond(unsafe) > 100 * derailmentRatePerSecond(safe));
+  const rail = new RailPath(60123);
+  const sim = new TrainSimulation(rail);
+  sim.derailmentRisk = unsafe;
+  const expected = 1 - Math.exp(-derailmentRatePerSecond(unsafe) * 10);
+  assert.ok(Math.abs(sim.derailmentChance10s - expected) < 1e-12);
+});
+
+test("failure toggle prevents derailment, but dangerous driving derails seeded trials", () => {
+  let failures = 0;
+  for (let i = 0; i < 24; i++) {
+    const rail = new RailPath(1000 + i);
+    rail.speedLimitAt = () => 42;
+    rail.curvature = () => .00051;
+    rail.grade = () => 0;
+    const disabled = new TrainSimulation(rail);
+    disabled.speed = 108 / 3.6;
+    for (let t = 0; t < 150; t++) disabled.update(1 / 60);
+    assert.equal(disabled.derailed, false);
+    const dangerous = new TrainSimulation(rail);
+    dangerous.speed = 108 / 3.6;
+    dangerous.derailmentEnabled = true;
+    for (let t = 0; t < 360 && !dangerous.derailed; t++) dangerous.update(1 / 60);
+    if (dangerous.derailed) failures++;
+  }
+  assert.ok(failures >= 9, "overspeeding through tight bends should cause measurable seeded failures");
+});
+
+test("forward travel and reverse revisit remain bounded and deterministic", () => {
+  const rail = new RailPath(2026);
+  const scene = new THREE.Scene();
+  const world = new WorldStream(scene, rail);
+  world.setDensity(.45);
+  world.setViewScale(.58);
+  const sample = [0, 320, 1900, 4800].map(s => world.terrainHeight(s, 74));
+  for (const distance of [0, 1700, 3900, 6100, 4800, 2200, 0]) {
+    world.update(distance, 15);
+    assert.ok(scene.children.length <= 22, "streaming should retain bounded chunks");
+  }
+  assert.deepEqual([0, 320, 1900, 4800].map(s => world.terrainHeight(s, 74)), sample);
+  assert.ok(scene.getObjectByName("rail-profile"), "rails survive reverse revisiting");
+  world.clear();
+  assert.equal(scene.children.length, 0);
+});
+
+test("road crossings add legible warning structures on open track", () => {
+  const rail = new RailPath(5501);
+  const world = new WorldStream(new THREE.Scene(), rail);
+  world.setDensity(.45);
+  world.setViewScale(.58);
+  world.update(340);
+  const crossing = world.scene.getObjectByName("rail-crossing");
+  assert.ok(crossing, "planned crossing should be present beside the track");
+  assert.ok(crossing.children.length >= 14);
+  world.clear();
+});
+
+test("scenic stops, lake life, and ground-following lanes survive streaming", () => {
+  const rail = new RailPath(42424);
+  const scene = new THREE.Scene();
+  const world = new WorldStream(scene, rail);
+  world.setDensity(.45);
+  world.setViewScale(.58);
+  world.update(125);
+  const station = scene.getObjectByName("populated-scenic-station");
+  assert.ok(station, "the open starting section should contain a populated scenic station");
+  assert.ok(station.children.length > 20);
+  assert.ok(station.getObjectByName("station-door"), "station needs a visible rail-facing entrance");
+  assert.ok(station.getObjectByName("station-window"), "station needs real window frames");
+  assert.ok(station.getObjectByName("station-canopy"), "station needs a sheltered waiting area");
+  assert.ok(station.getObjectByName("station-clock"));
+  world.update(1100);
+  const leaves = scene.getObjectByName("floating-lake-leaves");
+  assert.ok(leaves instanceof THREE.InstancedMesh, "lake needs efficient floating vegetation");
+  assert.equal(leaves.count, 38);
+  const boats: THREE.Object3D[] = [], anglers: THREE.Object3D[] = [];
+  scene.traverse(object => {
+    if (object.name === "occupied-rowboat") boats.push(object);
+    if (object.name === "shoreline-fishing-rod") anglers.push(object);
+  });
+  assert.ok(boats.length >= 3 && anglers.length >= 4);
+  world.update(1875);
+  assert.ok(scene.getObjectByName("terrain-following-house-paths"),
+    "village homes must be connected by terrain-hugging paths rather than boxes");
+  world.clear();
+});
+
+test("inside-train cameras hide the opaque exterior shell but restore it outside", () => {
+  const scene = new THREE.Scene();
+  const view = new TrainView(scene, new RailPath(8008));
+  const shell = scene.getObjectByName("cab-exterior-shell");
+  const coach = scene.getObjectByName("coach-exterior-shell");
+  assert.ok(shell && coach);
+  view.setInteriorCameraMode(4);
+  assert.equal(shell.visible, false);
+  assert.equal(coach.visible, true);
+  view.setInteriorCameraMode(5);
+  assert.equal(shell.visible, true);
+  assert.equal(coach.visible, false);
+  view.setInteriorCameraMode(0);
+  assert.equal(shell.visible, true);
+  assert.equal(coach.visible, true);
+});
+
+test("tunnel mouths sit in mountains rather than tapering down to road level", () => {
+  const rail = new RailPath(71425);
+  const terrain = new Landscape(rail);
+  let portal = -1;
+  for (let s = 0; s < 12000; s += 3) {
+    if (rail.featureAt(s) === "tunnel" && rail.featureStrength(s) > .13 &&
+        rail.featureStrength(s) < .3) { portal = s; break; }
+  }
+  assert.ok(portal >= 0);
+  assert.ok(terrain.tunnelMountainStrength(portal) > .5);
+  assert.ok(terrain.height(portal, 30) > rail.point(portal).y + 8);
+});
+
+test("recessed river meshes join their banks without lateral or vertical seams", () => {
+  const rail = new RailPath(60008);
+  let crossing = -1;
+  for (let s = 750; s < 20000; s += 1550) {
+    if (rail.featureAt(s) === "bridge") { crossing = s; break; }
+  }
+  assert.ok(crossing >= 0);
+  const scene = new THREE.Scene();
+  const world = new WorldStream(scene, rail);
+  world.setDensity(.45);
+  world.setViewScale(.58);
+  world.update(crossing);
+  const river = scene.getObjectByName("recessed-river") as THREE.Mesh;
+  const banks = scene.getObjectByName("riverbank-soil") as THREE.Mesh;
+  assert.ok(river && banks);
+  const water = river.geometry.getAttribute("position");
+  const soil = banks.geometry.getAttribute("position");
+  assert.ok(water.count > 180);
+  for (let i = 0; i < water.count / 2; i += 15) {
+    for (const side of [0, 1]) {
+      const a = new THREE.Vector3().fromBufferAttribute(water, i * 2 + side);
+      const b = new THREE.Vector3().fromBufferAttribute(soil, i * 4 + side * 2);
+      assert.ok(a.distanceTo(b) < .001, "riverbank must join the water edge");
+    }
+  }
+  world.clear();
 });
