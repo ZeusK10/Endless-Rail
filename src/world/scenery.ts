@@ -284,10 +284,15 @@ const houseCache = new Map<string, THREE.Group>();
 
 function houseDetailPrototype(biome: Biome, variant: number): THREE.Group {
   const house = new THREE.Group();
-  const wide = biome === "cherry" ? 6.2 : 4.9 + (variant % 3) * 0.6;
-  const depth = biome === "lakeside" ? 7.3 : 5.8;
-  const h = biome === "highlands" ? 4.0 : 3.5;
-  const rise = biome === "cherry" ? 1.45 : 2.05;
+  const architecture = variant % 6;
+  const modern = architecture === 2 || architecture === 5;
+  const floors = modern ? (architecture === 5 ? 3 : 2) :
+    architecture === 4 ? 2 : 1;
+  const wide = modern ? 7.1 + (variant % 3) * .65 :
+    biome === "cherry" ? 6.2 : 4.9 + (variant % 3) * .6;
+  const depth = modern ? 7.8 : biome === "lakeside" ? 7.3 : 5.8;
+  const h = (biome === "highlands" ? 4.0 : 3.5) + (floors - 1) * 2.95;
+  const rise = modern ? .34 : biome === "cherry" ? 1.45 : 2.05;
   const wall = walls[(variant + (biome === "cherry" ? 2 : 0)) % walls.length];
   const roof = roofs[(variant + (biome === "lakeside" ? 1 : 0)) % roofs.length];
   const glazing = variant % 4 === 0 ? windowGlow : windows;
@@ -309,6 +314,7 @@ function houseDetailPrototype(biome: Biome, variant: number): THREE.Group {
   }
 
   // A triangular gable closes the facade under the pitched roof.
+  if (!modern) {
   const gableOutline = new THREE.Shape();
   gableOutline.moveTo(-wide / 2, wallTop - 0.04);
   gableOutline.lineTo(0, wallTop + rise - 0.14);
@@ -343,6 +349,17 @@ function houseDetailPrototype(biome: Biome, variant: number): THREE.Group {
   block(house, glazing, 0, wallTop + rise * 0.38, front - 0.20, 0.51, 0.44, 0.07);
   block(house, timber, 0, wallTop + rise * 0.38, front - 0.27, 0.08, 0.48, 0.045);
 
+  } else {
+    // Modern masonry apartments break the repeated pitched-roof silhouette.
+    block(house, roof, 0, wallTop + .18, 0, wide + .85, .34, depth + .86);
+    for (const x of [-wide / 2 - .32, wide / 2 + .32]) {
+      block(house, trim, x, wallTop + .56, 0, .22, .82, depth + 1.02);
+    }
+    for (const z of [front - .4, -front + .4]) {
+      block(house, trim, 0, wallTop + .56, z, wide + .85, .82, .2);
+    }
+    block(house, timber, wide * .3, wallTop + 1.18, 0, 1.36, 1.3, 1.25);
+  }
   // Front entrance: a recessed frame, divided door, handle, threshold, steps.
   block(house, trim, 0, 1.68, front - 0.085, 1.48, 2.19, 0.2);
   block(house, doors, 0, 1.67, front - 0.21, 1.23, 2.02, 0.12);
@@ -381,6 +398,24 @@ function houseDetailPrototype(biome: Biome, variant: number): THREE.Group {
     }
   }
 
+  if (floors > 1) {
+    for (let floor = 1; floor < floors; floor++) {
+      const y = 2.55 + floor * 2.95;
+      for (const x of [-wide * .3, wide * .3]) {
+        windowAt(x, y, front - .07, 1.15, 1.4);
+      }
+      if (modern || (architecture === 4 && floor === 1)) {
+        // Balconies have deck slabs, railings and real openings.
+        const balconyY = y - 1.08;
+        block(house, stones, 0, balconyY, front - 1.1, wide * .85, .23, 2.1);
+        for (const x of [-wide * .4, 0, wide * .4]) {
+          block(house, roofEdge, x, balconyY + .58, front - 2.11, .11, 1.18, .12);
+        }
+        block(house, roofEdge, 0, balconyY + 1.12, front - 2.12, wide * .82, .13, .12);
+      }
+    }
+  }
+
   // Side facades get real glazing, mullions and wooden sill details.
   for (const side of [-1, 1]) {
     const x = side * (wide / 2 + 0.11);
@@ -390,6 +425,13 @@ function houseDetailPrototype(biome: Biome, variant: number): THREE.Group {
       block(house, timber, x + side * 0.15, 2.62, z, 0.08, 1.18, 0.07);
       block(house, timber, x + side * 0.16, 2.62, z, 0.08, 0.07, 1.05);
       block(house, stones, x, 1.88, z, 0.39, 0.13, 1.36);
+    }
+    for (let floor = 1; floor < floors; floor++) {
+      for (const z of [-depth * .2, depth * .24]) {
+        block(house, trim, x, 2.62 + floor * 2.95, z, .20, 1.48, 1.29);
+        block(house, glazing, x + side * .09, 2.62 + floor * 2.95, z,
+          .09, 1.18, 1.03);
+      }
     }
     // Rain gutter and downpipe also make the silhouette less box-like.
     block(house, roofEdge, side * (wide / 2 + 0.34), wallTop + 0.08, 0,
@@ -529,8 +571,9 @@ export function populateVillage(ctx: Context, index: number, mid: number): void 
   if (!region) return;
   const seed = ctx.rail.seed, side = region.side;
   const villageSeed = region.center;
-  const numberOfBuildings = 6 + Math.floor(hash(seed, villageSeed, index + 33) * 3);
+  const numberOfBuildings = 8 + Math.floor(hash(seed, villageSeed, index + 33) * 4);
   const placed: Array<{ s: number; offset: number }> = [];
+  const walkVertices: number[] = [], walkColors: number[] = [], walkIndices: number[] = [];
   const roadOffset = (s: number): number =>
     side * (53 + Math.sin(s / 78 + hash(seed, villageSeed, 404) * 6) * 9);
 
@@ -548,8 +591,7 @@ export function populateVillage(ctx: Context, index: number, mid: number): void 
         const offset = roadOffset(s) + edge;
         const pos = basePoint(ctx, s, offset);
         pos.y += .095;
-        roadVertices.push(pos.x - ctx.chunk.center.x,
-          pos.y - ctx.chunk.center.y, pos.z - ctx.chunk.center.z);
+        roadVertices.push(pos.x, pos.y, pos.z);
         const tint = .86 + hash(seed, Math.floor(s / 4), edge > 0 ? 31 : 32) * .21;
         roadColors.push(tint, tint * .96, tint * .88);
       }
@@ -574,13 +616,13 @@ export function populateVillage(ctx: Context, index: number, mid: number): void 
     let found = false;
     for (let attempt = 0; attempt < 14; attempt++) {
       const key = i * 29 + attempt;
-      s = mid - 103 + hash(seed ^ 0x3b15e, index, key) * 206;
-      offset = side * (41 + hash(seed ^ 0x941e5, index, key) * 111);
+      s = mid - 110 + hash(seed ^ 0x3b15e, index, key) * 220;
+      offset = roadOffset(s) + side * (11 + hash(seed ^ 0x941e5, index, key) * 38);
       if (isWater(ctx, s, offset)) continue;
       const slope = Math.abs(ctx.landscape.height(s, offset + 4) -
         ctx.landscape.height(s, offset - 4));
       if (slope > 5.4) continue;
-      if (placed.some(p => Math.hypot(s - p.s, offset - p.offset) < 15)) continue;
+      if (placed.some(p => Math.hypot(s - p.s, offset - p.offset) < 11.5)) continue;
       found = true;
       break;
     }
@@ -597,21 +639,24 @@ export function populateVillage(ctx: Context, index: number, mid: number): void 
       (side < 0 ? Math.PI : 0) + (hash(seed ^ 0x861aa, index, i) - .5) * .52;
     ctx.chunk.group.add(building);
 
+    // Thin muddy lane follows the actual ground; no floating box segments.
     const street = roadOffset(s);
     const length = Math.abs(offset - street);
-    if (length > 9) {
-      for (let j = 0; j < Math.floor(length / 7); j++) {
-        const spot = street + side * (j + .5) * length / Math.floor(length / 7);
-        if (isWater(ctx, s, spot)) continue;
-        const at = basePoint(ctx, s, spot);
-        const path = new THREE.Mesh(reusableBox, paths);
-        path.position.copy(at);
-        path.position.y += .08;
-        path.scale.set(2.1, .12, length / Math.floor(length / 7) + .1);
-        path.rotation.y = Math.atan2(-ctx.rail.tangent(s).x,
-          -ctx.rail.tangent(s).z) + Math.PI / 2;
-        ctx.chunk.group.add(path);
+    const steps = Math.max(2, Math.ceil(length / 3));
+    for (let j = 0; j < steps; j++) {
+      const near = street + (offset - street) * j / steps;
+      const far = street + (offset - street) * (j + 1) / steps;
+      if (isWater(ctx, s, near) || isWater(ctx, s, far)) continue;
+      const base = walkVertices.length / 3;
+      for (const atOffset of [near, far]) {
+        for (const ds of [-1.35, 1.35]) {
+          const p = basePoint(ctx, s + ds, atOffset);
+          walkVertices.push(p.x, p.y + .11, p.z);
+          const tint = .82 + hash(seed, Math.floor(s + ds), j * 5) * .22;
+          walkColors.push(tint, tint * .95, tint * .84);
+        }
       }
+      walkIndices.push(base, base + 1, base + 2, base + 1, base + 3, base + 2);
     }
     if (i % 3 === 0) {
       const gardenS = Math.min(mid + 111, s + 11);
@@ -631,6 +676,58 @@ export function populateVillage(ctx: Context, index: number, mid: number): void 
         block(ctx.chunk.group, fence, at.x, at.y + .6, at.z, .16, 1.2, .16);
       }
     }
+  }
+  // Shared village amenities fill the center of each lived-in settlement.
+  if (index === region.center) {
+    const nearRoad = roadOffset(mid) + side * 16;
+    if (!isWater(ctx, mid, nearRoad)) {
+      const well = new THREE.Group();
+      well.position.copy(basePoint(ctx, mid, nearRoad));
+      for (let j = 0; j < 8; j++) {
+        const theta = j * Math.PI / 4;
+        const stone = new THREE.Mesh(reusableBox, stones);
+        stone.position.set(Math.cos(theta) * 1.35, .66, Math.sin(theta) * 1.35);
+        stone.rotation.y = -theta;
+        stone.scale.set(1.25, 1.2, .45);
+        well.add(stone);
+      }
+      block(well, timber, -1.7, 2.45, 0, .25, 3.35, .25);
+      block(well, timber, 1.7, 2.45, 0, .25, 3.35, .25);
+      block(well, roofs[2], 0, 4.18, 0, 4.15, .25, 3.2);
+      block(well, timber, 0, 2.9, 0, 3.6, .14, .14);
+      ctx.chunk.group.add(well);
+    }
+    const playS = mid + 32;
+    const playOffset = roadOffset(playS) + side * 15;
+    if (!isWater(ctx, playS, playOffset)) {
+      const park = new THREE.Group();
+      park.position.copy(basePoint(ctx, playS, playOffset));
+      // Swing set: A-frame posts, two seats and chains.
+      for (const z of [-2.1, 2.1]) for (const x of [-2.8, 2.8]) {
+        const post = block(park, timber, x, 1.75, z, .22, 3.5, .24);
+        post.rotation.z = (x > 0 ? 1 : -1) * .13;
+      }
+      block(park, roofEdge, 0, 3.45, 0, 6.3, .22, .21);
+      for (const x of [-1.45, 1.45]) {
+        for (const shift of [-.45, .45]) {
+          block(park, stones, x + shift, 2.1, -.45, .05, 2.1, .05);
+        }
+        block(park, roofs[1], x, 1.05, -.45, 1.1, .18, .6);
+      }
+      block(park, flowerPink, 5.0, .65, 0, 1.55, 1.3, 1.55);
+      ctx.chunk.group.add(park);
+    }
+  }
+  if (walkVertices.length) {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(walkVertices, 3));
+    geometry.setAttribute("color", new THREE.Float32BufferAttribute(walkColors, 3));
+    geometry.setIndex(walkIndices);
+    geometry.computeVertexNormals();
+    const lanes = new THREE.Mesh(geometry, mudRoadMaterial);
+    lanes.name = "terrain-following-house-paths";
+    ctx.chunk.group.add(lanes);
+    ctx.chunk.geometries?.push(geometry);
   }
 }
 
