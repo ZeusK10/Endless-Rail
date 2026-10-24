@@ -7,6 +7,7 @@ import { ActivityManager } from "../src/game/activities";
 import { hash, CHUNK_LENGTH } from "../src/game/constants";
 import { populateVillage } from "../src/world/scenery";
 import { TrainView } from "../src/game/train-view";
+import { SkySystem, daylightAt, formatTimeOfDay } from "../src/game/sky";
 import * as THREE from "three";
 
 test("rail path, limits and terrain are deterministic and finite", () => {
@@ -136,4 +137,43 @@ test("diesel and steam emit bounded, world-space exhaust; electric stays clean",
   const countBeforePause = particles.count;
   view.update(211, 0, 1, new THREE.Vector3(500, 0, 0), 0, false, false);
   assert.equal(particles.count, countBeforePause);
+});
+
+test("time-of-day sampling, weather tint and skybox remain bounded", () => {
+  assert.equal(formatTimeOfDay(8.5), "08:30");
+  assert.equal(formatTimeOfDay(23.75), "23:45");
+  assert.equal(formatTimeOfDay(24.25), "00:15");
+  assert.ok(daylightAt(12) > .99);
+  assert.ok(daylightAt(0) < .01);
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.Fog("#ffffff", 170, 690);
+  const camera = new THREE.PerspectiveCamera(62, 1, .1, 1100);
+  const ambient = new THREE.HemisphereLight("#ffffff", "#819f78", 2.7);
+  const sun = new THREE.DirectionalLight("#ffffff", 2.2);
+  const sky = new SkySystem(scene, camera, ambient, sun, 4192);
+  assert.ok(scene.getObjectByName("procedural-skybox"));
+  const stars = scene.getObjectByName("night-stars") as THREE.Points;
+  sky.setTimeOfDay(12);
+  sky.update(0, false, 0, 0);
+  const noonSun = sun.intensity;
+  assert.ok(noonSun > 1.8);
+  assert.equal(stars.visible, false);
+  const noonFog = (scene.fog as THREE.Fog).color.clone();
+  sky.setTimeOfDay(0);
+  sky.update(0, false, 0, 0);
+  assert.ok(sun.intensity < .1);
+  assert.ok(stars.visible);
+  assert.ok(ambient.intensity < 1);
+  assert.notDeepEqual((scene.fog as THREE.Fog).color.toArray(), noonFog.toArray());
+  sky.setTimeOfDay(6);
+  sky.update(0, false, 1, 0);
+  assert.ok(Number.isFinite(sun.position.length()));
+  sky.setTimeOfDay(8.5);
+  sky.setCycleMinutes(12);
+  sky.update(60, true, 0, 0);
+  // RAF dt is capped so a background-tab jump cannot skip whole nights.
+  assert.ok(sky.hour > 8.5 && sky.hour < 8.51);
+  const beforePause = sky.hour;
+  sky.update(30, false, 0, 0);
+  assert.equal(sky.hour, beforePause);
 });

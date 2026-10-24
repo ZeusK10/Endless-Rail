@@ -15,7 +15,7 @@ A lightweight, single-player, browser-based toy-train journey through a procedur
 - Controller, keyboard and touchscreen controls; four train cameras plus free-fly camera with independent world streaming.
 - Bundled CC0 recordings of a real diesel idling, rail cars rolling and a longer locomotive horn, blended by speed and throttle. Added generated rail-joint clicks, brake hiss, curve squeal, and derailment crash effects.
 - Optional speed, smooth-driving, scenic, passenger-comfort and speed-limit activities. Session-only milestones, best speed, comfort and overspeed statistics.
-- Main menu, minimalist contextual driving HUD, slide-out settings, camera sensitivity, per-category audio mixer, adaptive rendering/vegetation density and view distance. Seeded clear, mist and drizzle weather cycles.
+- Main menu, minimalist contextual driving HUD, slide-out settings, camera sensitivity, per-category audio mixer, adaptive rendering/vegetation density and view distance. Seeded clear, mist and drizzle weather cycles, plus a lightweight shader skybox with a full day/night cycle, sunset and sunrise colors, sun, moon, stars and synchronized lighting.
 - **No accounts, multiplayer, backend or save system. Refresh resets the experience.**
 
 The train and scenery are stylized low-poly representations rather than scanned models. The new train audio uses real field recordings plus procedural effects, all bundled locally. See [AUDIO_SOURCES.md](AUDIO_SOURCES.md) for the recordings, edits and CC0 licensing. The scene is a playable early version, not a finished art or simulation release. Station and junction operations remain future milestones. Electric/steam propulsion accents are lightweight synthesized placeholders; the bundled real engine recording is diesel-specific. Train-type-specific field recordings and in-device audio balancing remain future sound improvements.
@@ -68,7 +68,7 @@ Derailment remains OFF by default. When enabled in the pause menu, the HUD displ
 | Mouse drag / right stick | Orbit chase camera |
 | Esc / Menu | Pause |
 
-Choose locomotive type and camera sensitivity in Settings. Dynamic weather and adaptive graphics can be disabled there. The game resets to defaults on refresh.
+Choose locomotive type and camera sensitivity in Settings. Dynamic weather and adaptive graphics can be disabled there. Use the Time of day slider to jump straight to dawn, noon, dusk or midnight; a full cycle takes 12 minutes by default (8 or 20 minutes can be selected). The clock only advances while playing. The game resets to defaults on refresh.
 
 Free-cam touch flight buttons appear when flight mode is active. Touch buttons appear on coarse-pointer devices. Keyboard and gamepad also work on supported browsers.
 
@@ -78,4 +78,6 @@ See [AGENTS.md](AGENTS.md). The implementation is developed as small commits on 
 
 ## Validation scope
 
-GitHub Actions runs TypeScript typechecking, a production build, deterministic rail/simulation tests, and a Chromium browser-interaction smoke test. Headless Chromium is **not** a replacement for listening on an iPad, verifying touch responsiveness on physical devices, or testing Bluetooth gamepads. Before merging, manually check horns/volume, graphics settings, all touch buttons, long reverse journeys, locomotive switching, and mobile battery/temperature.
+GitHub Actions runs TypeScript typechecking, a production build, deterministic rail/simulation tests, and a Chromium browser-interaction smoke test. The procedural sky uses one simple dome shader and a batched starfield, not downloaded sky textures. Outdoor illumination, fog tint and the day/night clock change with gameplay time and weather.
+
+Headless Chromium is **not** a replacement for listening on an iPad, verifying touch responsiveness on physical devices, or testing Bluetooth gamepads. Before merging, manually check horns/volume, graphics settings, all touch buttons, long reverse journeys, locomotive switching, and mobile battery/temperature.

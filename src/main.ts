@@ -3,6 +3,7 @@ import "./style.css";
 import { RailPath } from "./sim/rail";
 import { TrainSimulation, type DrivingMode, type TrainType } from "./sim/train";
 import { WeatherSystem } from "./game/weather";
+import { SkySystem, formatTimeOfDay } from "./game/sky";
 import { WorldStream } from "./world/world";
 import { TrainView } from "./game/train-view";
 import { Controls } from "./game/controls";
@@ -25,7 +26,8 @@ const renderer = new THREE.WebGLRenderer({
 });
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 container.appendChild(renderer.domElement);
-scene.add(new THREE.HemisphereLight("#ffffff", "#819f78", 2.7));
+const ambientLight = new THREE.HemisphereLight("#ffffff", "#819f78", 2.7);
+scene.add(ambientLight);
 const sunlight = new THREE.DirectionalLight("#fff0cf", 2.2);
 sunlight.position.set(-40, 75, 35);
 scene.add(sunlight);
@@ -38,7 +40,8 @@ const trainView = new TrainView(scene, rail);
 const controls = new Controls(renderer.domElement);
 const activities = new ActivityManager(seed);
 const audio = new TrainAudio();
-const weather = new WeatherSystem(scene, camera, sunlight, seed);
+const weather = new WeatherSystem(scene, camera, seed);
+const sky = new SkySystem(scene, camera, ambientLight, sunlight, seed);
 
 const startScreen = element<HTMLElement>("start-screen");
 const pauseScreen = element<HTMLElement>("pause-screen");
@@ -62,6 +65,9 @@ const adaptiveQualityToggle = element<HTMLInputElement>("adaptive-quality");
 const trainTypeSelect = element<HTMLSelectElement>("train-type-select");
 const weatherToggle = element<HTMLInputElement>("weather-toggle");
 const weatherValue = element<HTMLElement>("weather-value");
+const timeInput = element<HTMLInputElement>("time-of-day");
+const timeValue = element<HTMLElement>("time-value");
+const dayLengthSelect = element<HTMLSelectElement>("day-length");
 const loadingStatus = element<HTMLElement>("loading-status");
 const safetyWarning = element<HTMLElement>("safety-warning");
 const activityNotice = element<HTMLElement>("activity-notice");
@@ -174,6 +180,12 @@ trainTypeSelect.addEventListener("change", () => {
   }
 });
 weatherToggle.addEventListener("change", () => weather.setEnabled(weatherToggle.checked));
+timeInput.addEventListener("input", () => {
+  sky.setTimeOfDay(timeInput.valueAsNumber);
+  timeValue.textContent = formatTimeOfDay(sky.hour);
+});
+dayLengthSelect.addEventListener("change", () =>
+  sky.setCycleMinutes(Number(dayLengthSelect.value)));
 modeButtons.forEach(button => button.addEventListener("click", () => {
   simulation.setMode(button.dataset.mode as DrivingMode);
 }));
@@ -371,6 +383,10 @@ function updateInterface(): void {
   overspeedValue.textContent = String(Math.round(activities.overspeedMeters));
   milestoneValue.textContent = String(activities.milestones);
   weatherValue.textContent = weather.label;
+  timeValue.textContent = formatTimeOfDay(sky.hour);
+  if (!settingsOpen || document.activeElement !== timeInput) {
+    timeInput.value = String(Math.round(sky.hour * 4) / 4);
+  }
   loadingStatus.hidden = !playing || audio.audioProgress >= 1;
   loadingStatus.textContent = "Loading railway audio: " +
     Math.round(audio.audioProgress * 100) + "%";
@@ -471,7 +487,8 @@ renderer.setAnimationLoop((time) => {
   trainView.update(simulation.distance, simulation.speed, dt, world.originPoint,
     simulation.throttle, simulation.derailed, playing && !paused);
   updateCamera(Math.max(dt, 1 / 60));
-  weather.update(simulation.distance, paused ? 0 : dt);
+  weather.update(simulation.distance, playing && !paused ? dt : 0);
+  sky.update(dt, playing && !paused, weather.rainAmount, weather.mistAmount);
   audio.update({
     speedKmh: simulation.speedKmh,
     throttle: simulation.throttle,

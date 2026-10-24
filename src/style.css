@@ -243,3 +243,8 @@ button:active { transform: scale(.97); }
   .activity-notice { bottom: 204px; }
   .driver-message { bottom: 258px; }
 }
+
+/* Compact, touch-friendly day/night controls inside the existing settings drawer. */
+.sky-heading { margin: 17px 0 2px; color: #456e64; font-size: 13px; }
+#time-of-day { width: min(160px, 46%); accent-color: #408c79; }
+.sky-help { font-size: 12px; line-height: 1.5; opacity: .78; margin: 5px 0 13px; }

@@ -10,15 +10,13 @@ export class WeatherSystem {
   private enabled = true;
   private readonly rain: THREE.Points;
   private readonly raindrops: Float32Array;
-  private readonly fairSky = new THREE.Color("#c9e9ff");
-  private readonly wetSky = new THREE.Color("#a9c1d0");
-  private readonly mistSky = new THREE.Color("#d1dbdc");
   label = "Clear skies";
+  rainAmount = 0;
+  mistAmount = 0;
 
   constructor(
     private readonly scene: THREE.Scene,
     camera: THREE.Camera,
-    private readonly sun: THREE.DirectionalLight,
     private readonly seed: number,
   ) {
     const count = 170;
@@ -65,15 +63,14 @@ export class WeatherSystem {
     this.label = rainMix > .55 ? "Light rain" : mistMix > .55 ?
       "Morning mist" : weatherMix > .2 ? "Changing skies" : "Clear skies";
 
-    const sky = this.fairSky.clone().lerp(this.mistSky, mistMix)
-      .lerp(this.wetSky, rainMix);
-    (this.scene.background as THREE.Color).copy(sky);
+    this.rainAmount = rainMix;
+    this.mistAmount = mistMix;
+    // Only visibility, particle motion and fog depth belong to weather.
+    // SkySystem owns the dome, fog tint, and time-of-day illumination.
     if (this.scene.fog instanceof THREE.Fog) {
-      this.scene.fog.color.copy(sky);
       this.scene.fog.near = lerp(170, 90, mistMix + rainMix * .5);
       this.scene.fog.far = lerp(690, 345, Math.min(1, mistMix * .65 + rainMix * .8));
     }
-    this.sun.intensity = 2.2 - .65 * rainMix - .38 * mistMix;
     this.rain.visible = rainMix > .12;
     if (!this.rain.visible) return;
     for (let i = 0; i < this.raindrops.length; i += 3) {

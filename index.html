@@ -104,6 +104,16 @@
           <label class="setting-row"><span>Dynamic weather</span>
             <input id="weather-toggle" type="checkbox" checked /></label>
           <div class="journey-summary">Conditions: <b id="weather-value">Clear skies</b></div>
+          <h4 class="sky-heading">Sky &amp; time</h4>
+          <label class="setting-row" for="time-of-day"><span>Time of day: <b id="time-value">08:30</b></span>
+            <input id="time-of-day" type="range" min="0" max="23.75" step="0.25" value="8.5" aria-label="Time of day" /></label>
+          <label class="setting-row"><span>Full day length</span>
+            <select id="day-length" aria-label="Day and night cycle duration">
+              <option value="8">8 minutes</option>
+              <option value="12" selected>12 minutes</option>
+              <option value="20">20 minutes</option>
+            </select></label>
+          <p class="sky-help">Sunrise, sunset, moonlight and stars advance as you travel. Time pauses with the journey and resets on refresh.</p>
           <label class="setting-row"><span>Adaptive performance</span><input id="adaptive-quality" type="checkbox" checked /></label>
           <label class="setting-row"><span>Graphics quality</span>
             <select id="quality-select">

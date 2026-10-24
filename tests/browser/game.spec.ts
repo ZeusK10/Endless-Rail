@@ -22,6 +22,13 @@ test("journey, sliding settings, mode and audio controls", async ({ page }) => {
   await expect(page.locator("#volume-rails")).toHaveValue("45");
   await page.locator("#derail-toggle").check();
   await page.locator("#weather-toggle").uncheck();
+  await page.locator("#day-length").selectOption("8");
+  await expect(page.locator("#day-length")).toHaveValue("8");
+  await page.locator("#time-of-day").evaluate((slider: HTMLInputElement) => {
+    slider.value = "0";
+    slider.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await expect(page.locator("#time-value")).toHaveText("00:00");
 
   await page.getByRole("button", { name: "Close settings" }).last().click();
   await expect(page.locator("#settings-drawer")).not.toHaveClass(/is-open/);
