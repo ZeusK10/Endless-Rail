@@ -1,8 +1,9 @@
 import * as THREE from "three";
 import { RailPath } from "../sim/rail";
 import { Landscape } from "./landscape";
+import { populateLandscape, populateVillage } from "./scenery";
 import {
-  BIOME_NAMES, CHUNK_LENGTH, FOLIAGE, biomeAt, biomeBlend, hash,
+  BIOME_NAMES, CHUNK_LENGTH, biomeAt, biomeBlend,
   type Biome,
 } from "../game/constants";
 
@@ -13,18 +14,8 @@ interface Chunk {
   instances: THREE.InstancedMesh[];
 }
 
-const trunkGeometry = new THREE.CylinderGeometry(0.24, 0.37, 2.8, 5);
-const crownGeometry = new THREE.DodecahedronGeometry(1.75, 0);
-const pineGeometry = new THREE.ConeGeometry(1.8, 3.6, 6);
-const blossomGeometry = new THREE.IcosahedronGeometry(1.8, 0);
 const sleeperGeometry = new THREE.BoxGeometry(3.6, 0.2, 0.55);
-const houseGeometry = new THREE.BoxGeometry(1, 1, 1);
-const roofGeometry = new THREE.ConeGeometry(1, 1, 4);
 const waterGeometry = new THREE.CircleGeometry(1, 28);
-const trunkMaterial = new THREE.MeshLambertMaterial({ color: "#8c644a" });
-const crownMaterial = new THREE.MeshLambertMaterial({
-  color: "#ffffff", flatShading: true,
-});
 const sleeperMaterial = new THREE.MeshLambertMaterial({ color: "#987359" });
 const railMaterial = new THREE.MeshLambertMaterial({
   color: "#6d7a7e", side: THREE.DoubleSide,
@@ -32,10 +23,6 @@ const railMaterial = new THREE.MeshLambertMaterial({
 const groundMaterial = new THREE.MeshLambertMaterial({
   vertexColors: true, side: THREE.DoubleSide, flatShading: true,
 });
-const houseWalls = ["#f8dfa8", "#d5e4bd", "#f4c5b8", "#f7e6cd"];
-const houseRoofs = ["#a85e51", "#886f7a", "#71877f", "#bd8a5e"];
-const villageMaterials = houseWalls.map((c) => new THREE.MeshLambertMaterial({ color: c }));
-const roofMaterials = houseRoofs.map((c) => new THREE.MeshLambertMaterial({ color: c }));
 const waterMaterial = new THREE.MeshLambertMaterial({
   color: "#6cc9dc", transparent: true, opacity: 0.92, side: THREE.DoubleSide,
 });
@@ -115,8 +102,11 @@ export class WorldStream {
 
     this.createTerrain(chunk, start, end);
     this.createRail(chunk, start, end);
-    this.createVegetation(chunk, index, start, end);
-    if (index % 16 === 7) this.createVillage(chunk, index, mid);
+    populateLandscape({ chunk, rail: this.rail, landscape: this.landscape },
+      index, start, end);
+    if (((index % 12) + 12) % 12 === 7) {
+      populateVillage({ chunk, rail: this.rail, landscape: this.landscape }, index, mid);
+    }
     if (biomeAt(mid) === "lakeside" && index % 5 === 1) {
       this.createLake(chunk, mid);
     }
@@ -220,104 +210,6 @@ export class WorldStream {
     sleepers.instanceMatrix.needsUpdate = true;
     chunk.group.add(sleepers);
     chunk.instances.push(sleepers);
-  }
-
-  private createVegetation(
-    chunk: Chunk, index: number, start: number, end: number,
-  ): void {
-    const count = 46;
-    const trunks = new THREE.InstancedMesh(trunkGeometry, trunkMaterial, count);
-    const crowns = [
-      new THREE.InstancedMesh(crownGeometry, crownMaterial, count),
-      new THREE.InstancedMesh(pineGeometry, crownMaterial, count),
-      new THREE.InstancedMesh(blossomGeometry, crownMaterial, count),
-    ];
-    const typeCounts = [0, 0, 0];
-    const matrix = new THREE.Matrix4();
-    const rotation = new THREE.Quaternion();
-    const position = new THREE.Vector3();
-    const scale = new THREE.Vector3();
-    for (let i = 0; i < count; i++) {
-      const s = start + 5 + hash(this.rail.seed, index, i * 4) *
-        (end - start - 10);
-      const offset = (hash(this.rail.seed, index, i * 4 + 1) > 0.5 ? 1 : -1) *
-        (10 + hash(this.rail.seed, index, i * 4 + 2) * 95);
-      const size = 0.7 + hash(this.rail.seed, index, i * 4 + 3) * 1.15;
-      const base = this.local(chunk, s, offset);
-      base.y = this.terrainHeight(s, offset) - chunk.center.y;
-      rotation.setFromAxisAngle(new THREE.Vector3(0, 1, 0),
-        hash(this.rail.seed + 4, index, i) * Math.PI * 2);
-
-      position.copy(base);
-      position.y += 1.4 * size;
-      scale.set(size, size, size);
-      matrix.compose(position, rotation, scale);
-      trunks.setMatrixAt(i, matrix);
-
-      position.copy(base);
-      position.y += 3.35 * size;
-      scale.set(size, size * (0.8 + hash(this.rail.seed + 3, index, i) * 0.4), size);
-      matrix.compose(position, rotation, scale);
-      const treeBiome = biomeAt(s);
-      const speciesRoll = hash(this.rail.seed + 18, index, i);
-      const species = treeBiome === "cherry" && speciesRoll < 0.65
-        ? 2 : speciesRoll < 0.27 ? 1 : 0;
-      const instanceIndex = typeCounts[species]++;
-      crowns[species].setMatrixAt(instanceIndex, matrix);
-      const foliage = FOLIAGE[treeBiome];
-      const colorIndex = Math.floor(hash(this.rail.seed + 9, index, i) * foliage.length);
-      crowns[species].setColorAt(instanceIndex, new THREE.Color(foliage[colorIndex]));
-    }
-    trunks.instanceMatrix.needsUpdate = true;
-    chunk.group.add(trunks);
-    chunk.instances.push(trunks);
-    crowns.forEach((mesh, species) => {
-      mesh.count = typeCounts[species];
-      mesh.instanceMatrix.needsUpdate = true;
-      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-      chunk.group.add(mesh);
-      chunk.instances.push(mesh);
-    });
-  }
-
-  private createVillage(chunk: Chunk, index: number, mid: number): void {
-    const biome = biomeAt(mid);
-    const count = 5 + Math.floor(hash(this.rail.seed, index, 8) * 5);
-    const side = hash(this.rail.seed, index, 99) > 0.5 ? 1 : -1;
-    for (let i = 0; i < count; i++) {
-      const s = mid + (hash(this.rail.seed, index, i * 3) - 0.5) * 155;
-      const offset = side * (22 + hash(this.rail.seed, index, i * 3 + 1) * 54);
-      const size = 0.85 + hash(this.rail.seed, index, i * 3 + 2) * 0.7;
-      const base = this.local(chunk, s, offset);
-      base.y = this.terrainHeight(s, offset) - chunk.center.y;
-      const house = new THREE.Group();
-      house.position.copy(base);
-      const colorIndex = (i + (biome === "cherry" ? 2 : 0)) % villageMaterials.length;
-      const walls = new THREE.Mesh(houseGeometry, villageMaterials[colorIndex]);
-      walls.scale.set(5 * size, 3.5 * size, 4.5 * size);
-      walls.position.y = 1.75 * size;
-      const roof = new THREE.Mesh(roofGeometry, roofMaterials[colorIndex]);
-      roof.scale.set(3.9 * size, 2.4 * size, 3.6 * size);
-      roof.position.y = 4.7 * size;
-      roof.rotation.y = Math.PI / 4;
-      if (biome === "cherry") {
-        // Lower, wider roofs distinguish the blossom hamlets.
-        roof.scale.set(4.6 * size, 1.6 * size, 4.2 * size);
-      } else if (biome === "lakeside") {
-        // Broad roofs and small porch decks for waterfront cottages.
-        roof.scale.set(4.2 * size, 1.4 * size, 3.8 * size);
-        const deck = new THREE.Mesh(houseGeometry, roofMaterials[2]);
-        deck.scale.set(6.5 * size, 0.18 * size, 2.7 * size);
-        deck.position.set(0, 0.16 * size, -3.0 * size);
-        house.add(deck);
-      } else if (i % 3 === 0) {
-        // A modest barn-like silhouette among the highland cottages.
-        walls.scale.set(6.2 * size, 3.6 * size, 5.1 * size);
-        roof.scale.set(4.6 * size, 2.7 * size, 4.2 * size);
-      }
-      house.add(walls, roof);
-      chunk.group.add(house);
-    }
   }
 
   private createLake(chunk: Chunk, mid: number): void {
