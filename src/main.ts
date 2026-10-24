@@ -19,8 +19,8 @@ function element<T extends HTMLElement>(id: string): T {
 const container = element<HTMLDivElement>("app");
 const scene = new THREE.Scene();
 scene.background = new THREE.Color("#c9e9ff");
-scene.fog = new THREE.Fog("#c9e9ff", 170, 690);
-const camera = new THREE.PerspectiveCamera(62, 1, 0.1, 1100);
+scene.fog = new THREE.Fog("#c9e9ff", 220, 1350);
+const camera = new THREE.PerspectiveCamera(62, 1, 0.1, 2400);
 const renderer = new THREE.WebGLRenderer({
   antialias: true, powerPreference: "high-performance",
 });

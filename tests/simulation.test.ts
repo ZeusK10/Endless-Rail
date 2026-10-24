@@ -4,7 +4,7 @@ import { RailPath } from "../src/sim/rail";
 import { TrainSimulation } from "../src/sim/train";
 import { Landscape } from "../src/world/landscape";
 import { ActivityManager } from "../src/game/activities";
-import { hash, CHUNK_LENGTH } from "../src/game/constants";
+import { hash, CHUNK_LENGTH, biomeAt, biomeBoundary } from "../src/game/constants";
 import { populateVillage } from "../src/world/scenery";
 import { TrainView } from "../src/game/train-view";
 import { SkySystem, daylightAt, formatTimeOfDay } from "../src/game/sky";
@@ -176,4 +176,34 @@ test("time-of-day sampling, weather tint and skybox remain bounded", () => {
   const beforePause = sky.hour;
   sky.update(30, false, 0, 0);
   assert.equal(sky.hour, beforePause);
+});
+
+test("shorter variable biomes, route features and water stay reproducible", () => {
+  const first = new RailPath(18842);
+  const reversed = new RailPath(18842);
+  const terrain = new Landscape(first);
+  for (let i = 1; i <= 15; i++) {
+    const length = biomeBoundary(i) - biomeBoundary(i - 1);
+    assert.ok(length >= 1900 && length <= 3300, "biome length " + length);
+    assert.notEqual(biomeAt(biomeBoundary(i) - 10), biomeAt(biomeBoundary(i) + 10));
+  }
+  let bridges = 0, tunnels = 0;
+  for (let sector = 0; sector < 10; sector++) {
+    const s = sector * 1550 + 750;
+    const feature = first.featureAt(s);
+    if (feature === "bridge") {
+      bridges++;
+      const water = terrain.river(s, 0);
+      assert.ok(water && terrain.isWater(water.centerS, 0), "bridge must cross an actual river");
+      assert.ok(terrain.height(water.centerS, 0) < first.point(water.centerS).y - 2);
+    }
+    if (feature === "tunnel") tunnels++;
+    assert.deepEqual(first.point(s).toArray(), reversed.point(s).toArray());
+  }
+  assert.ok(bridges >= 2 && tunnels >= 2);
+  for (const s of [0, 399, 780, 1550, 3650, 6400, 9200, 17880]) {
+    assert.ok(first.point(s - .02).distanceTo(first.point(s + .02)) < .3);
+    assert.ok(Number.isFinite(terrain.height(s, 840)));
+  }
+  assert.ok(terrain.isWater(1100, terrain.lake(0).offset));
 });

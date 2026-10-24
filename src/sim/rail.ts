@@ -17,13 +17,17 @@ export class RailPath {
   }
 
   private lateralKnot(index: number): number {
-    return 36 * Math.sin(index * 0.71 + this.phase) +
-      16 * Math.sin(index * 1.43 + this.phase * 0.35) +
-      (hash(this.seed, index, 501) - 0.5) * 14;
+    const section = Math.floor(index / 5);
+    const shape = hash(this.seed, section, 811);
+    const intensity = shape < .28 ? .28 : shape < .68 ? 1 : 1.42;
+    return intensity * (
+      94 * Math.sin(index * .73 + this.phase) +
+      43 * Math.sin(index * 1.57 + this.phase * .35) +
+      (hash(this.seed, index, 501) - .5) * 56);
   }
 
   point(distance: number): THREE.Vector3 {
-    const segmentLength = 610;
+    const segmentLength = 390;
     const index = Math.floor(distance / segmentLength);
     const t = (distance - index * segmentLength) / segmentLength;
     const p0 = this.lateralKnot(index - 1);
@@ -31,8 +35,8 @@ export class RailPath {
     const p2 = this.lateralKnot(index + 1);
     const p3 = this.lateralKnot(index + 2);
     // Catmull-Rom with a small tangent tension; C1 across chunk boundaries.
-    const m1 = (p2 - p0) * 0.36;
-    const m2 = (p3 - p1) * 0.36;
+    const m1 = (p2 - p0) * 0.43;
+    const m2 = (p3 - p1) * 0.43;
     const t2 = t * t, t3 = t2 * t;
     const x = (2*t3-3*t2+1)*p1 + (t3-2*t2+t)*m1 +
       (-2*t3+3*t2)*p2 + (t3-t2)*m2;
@@ -41,21 +45,35 @@ export class RailPath {
     return new THREE.Vector3(x, y, -distance);
   }
 
-  /** A fixed-length scenic route feature, independent of chunk loading. */
+  /** Three-feature scenic blocks guarantee a bridge, tunnel and cutting. */
+  private featurePlan(distance: number): { type: RailFeature; strength: number } {
+    const span = 1550;
+    const sector = Math.floor(distance / span);
+    const within = distance - sector * span;
+    const start = 410 + hash(this.seed, sector, 711) * 135;
+    const end = 935 + hash(this.seed, sector, 712) * 135;
+    if (within < start || within > end) return { type: "open", strength: 0 };
+    const block = Math.floor(sector / 3);
+    const slot = ((sector % 3) + 3) % 3;
+    const variant = Math.floor(hash(this.seed, block, 713) * 6);
+    const orders: RailFeature[][] = [
+      ["bridge", "tunnel", "cutting"], ["bridge", "cutting", "tunnel"],
+      ["tunnel", "bridge", "cutting"], ["tunnel", "cutting", "bridge"],
+      ["cutting", "bridge", "tunnel"], ["cutting", "tunnel", "bridge"],
+    ];
+    return {
+      type: orders[variant][slot],
+      strength: smooth(THREE.MathUtils.clamp((within - start) / 70, 0, 1)) *
+        smooth(THREE.MathUtils.clamp((end - within) / 70, 0, 1)),
+    };
+  }
+
   featureAt(distance: number): RailFeature {
-    const sector = Math.floor(distance / 2100);
-    const within = distance - sector * 2100;
-    if (within < 580 || within > 1020) return "open";
-    const value = hash(this.seed, sector, 702);
-    return value < 0.31 ? "bridge" : value < 0.56 ? "tunnel" :
-      value < 0.82 ? "cutting" : "open";
+    return this.featurePlan(distance).type;
   }
 
   featureStrength(distance: number): number {
-    if (this.featureAt(distance) === "open") return 0;
-    const within = distance - Math.floor(distance / 2100) * 2100;
-    return smooth(THREE.MathUtils.clamp((within - 580) / 55, 0, 1)) *
-      smooth(THREE.MathUtils.clamp((1020 - within) / 55, 0, 1));
+    return this.featurePlan(distance).strength;
   }
 
   /** Track-aware limit for signposts, challenges and automatic driving. */

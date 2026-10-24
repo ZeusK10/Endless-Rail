@@ -89,10 +89,7 @@ function isVillageClearing(seed: number, index: number, s: number, offset: numbe
 }
 
 function isWater(ctx: Context, s: number, offset: number): boolean {
-  const index = Math.floor(s / CHUNK_LENGTH);
-  if (biomeAt(s) !== "lakeside" || ((index % 5) + 5) % 5 !== 1) return false;
-  const lake = ctx.landscape.lake(index);
-  return Math.hypot((s - lake.s) / 82, (offset - lake.offset) / 64) < 1.1;
+  return ctx.landscape.isWater(s, offset);
 }
 
 export function populateLandscape(

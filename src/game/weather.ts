@@ -68,8 +68,8 @@ export class WeatherSystem {
     // Only visibility, particle motion and fog depth belong to weather.
     // SkySystem owns the dome, fog tint, and time-of-day illumination.
     if (this.scene.fog instanceof THREE.Fog) {
-      this.scene.fog.near = lerp(170, 90, mistMix + rainMix * .5);
-      this.scene.fog.far = lerp(690, 345, Math.min(1, mistMix * .65 + rainMix * .8));
+      this.scene.fog.near = lerp(220, 70, mistMix + rainMix * .5);
+      this.scene.fog.far = lerp(1350, 420, Math.min(1, mistMix * .65 + rainMix * .8));
     }
     this.rain.visible = rainMix > .12;
     if (!this.rain.visible) return;

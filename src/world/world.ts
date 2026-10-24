@@ -89,7 +89,7 @@ export class WorldStream {
     }
 
     const current = Math.floor(focusDistance / CHUNK_LENGTH);
-    const behind = Math.max(2, Math.round((cameraDistance !== undefined ? 5 : speed < -0.2 ? 6 : 3) * this.viewScale));
+    const behind = Math.max(2, Math.round((cameraDistance !== undefined ? 5 : speed < -0.2 ? 6 : 5) * this.viewScale));
     const ahead = Math.max(2, Math.round((cameraDistance !== undefined ? 5 : speed < -0.2 ? 3 : 6) * this.viewScale));
     const desired = new Set<number>();
     for (let index = current - behind; index <= current + ahead; index++) {
@@ -125,17 +125,18 @@ export class WorldStream {
     group.position.copy(center).sub(this.origin);
 
     this.createTerrain(chunk, start, end);
+    this.createFarTerrain(chunk, start, end);
     this.createRail(chunk, start, end);
     this.createInfrastructure(chunk, start, end);
     this.createLandmarks(chunk, start, end);
+    this.createRiver(chunk, start, end);
     populateLandscape({ chunk, rail: this.rail, landscape: this.landscape },
       index, start, end, this.densityScale);
     if (((index % 12) + 12) % 12 === 7) {
       populateVillage({ chunk, rail: this.rail, landscape: this.landscape }, index, mid);
     }
-    if (biomeAt(mid) === "lakeside" && index % 5 === 1) {
-      this.createLake(chunk, mid);
-    }
+    const lake = this.landscape.nearestLake(mid);
+    if (lake && lake.s >= start && lake.s < end) this.createLake(chunk, lake);
 
     this.scene.add(group);
     this.chunks.set(index, chunk);
@@ -192,6 +193,80 @@ export class WorldStream {
     geometry.setIndex(indices);
     geometry.computeVertexNormals();
     chunk.group.add(new THREE.Mesh(geometry, groundMaterial));
+    chunk.geometries.push(geometry);
+  }
+
+  /**
+   * Low-resolution foreground-to-horizon relief. Each strip overlaps the
+   * high-detail corridor to hide T-junctions and is culled with its chunk.
+   * Geometry stays bounded even after a very long forward/reverse journey.
+   */
+  private createFarTerrain(chunk: Chunk, start: number, end: number): void {
+    const positions: number[] = [];
+    const colors: number[] = [];
+    const indices: number[] = [];
+    const rows = 22, columns = 14;
+    for (const direction of [-1, 1]) {
+      const baseIndex = positions.length / 3;
+      for (let row = 0; row <= rows; row++) {
+        const s = start + (end - start) * row / rows;
+        const transition = biomeBlend(s);
+        const ground = biomeGrass[transition.from].clone()
+          .lerp(biomeGrass[transition.to], transition.blend);
+        for (let col = 0; col <= columns; col++) {
+          const offset = direction * (185 + Math.pow(col / columns, 1.25) * 1015);
+          const p = this.local(chunk, s, offset);
+          const altitude = this.landscape.height(s, offset);
+          p.y = altitude - chunk.center.y - 0.14;
+          positions.push(p.x, p.y, p.z);
+          const rockiness = THREE.MathUtils.clamp((altitude - this.rail.point(s).y - 20) / 160, 0, .8);
+          const color = ground.clone().multiplyScalar(.83)
+            .lerp(new THREE.Color("#89928b"), rockiness);
+          colors.push(color.r, color.g, color.b);
+          if (row < rows && col < columns) {
+            const a = baseIndex + row * (columns + 1) + col;
+            const b = a + columns + 1;
+            indices.push(a, b, a + 1, a + 1, b, b + 1);
+          }
+        }
+      }
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+    geometry.setIndex(indices);
+    geometry.computeVertexNormals();
+    chunk.group.add(new THREE.Mesh(geometry, groundMaterial));
+    chunk.geometries.push(geometry);
+  }
+
+  private createRiver(chunk: Chunk, start: number, end: number): void {
+    const sector = Math.round(((start + end) / 2 - 750) / 1550);
+    const crossing = sector * 1550 + 750;
+    if (crossing < start || crossing >= end || !this.landscape.river(crossing, 0)) return;
+    const positions: number[] = [];
+    const indices: number[] = [];
+    const steps = 48;
+    for (let i = 0; i <= steps; i++) {
+      const offset = -195 + 390 * i / steps;
+      const channel = this.landscape.river(crossing, offset);
+      if (!channel) continue;
+      for (const side of [-1, 1]) {
+        const p = this.local(chunk,
+          channel.centerS + side * channel.halfWidth, offset);
+        p.y = channel.waterY - chunk.center.y - .11;
+        positions.push(p.x, p.y, p.z);
+      }
+      if (i < steps) {
+        const a = i * 2;
+        indices.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+      }
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setIndex(indices);
+    geometry.computeVertexNormals();
+    chunk.group.add(new THREE.Mesh(geometry, waterMaterial));
     chunk.geometries.push(geometry);
   }
 
@@ -317,14 +392,14 @@ export class WorldStream {
     }
   }
 
-  private createLake(chunk: Chunk, mid: number): void {
-    const index = Math.floor(mid / CHUNK_LENGTH);
-    const lake = this.landscape.lake(index);
+  private createLake(
+    chunk: Chunk, lake: ReturnType<Landscape["lake"]>,
+  ): void {
     const location = this.local(chunk, lake.s, lake.offset);
-    location.y = lake.waterY - chunk.center.y;
+    location.y = lake.waterY - chunk.center.y - .05;
     const water = new THREE.Mesh(waterGeometry, waterMaterial);
     water.rotation.x = -Math.PI / 2;
-    water.scale.set(76, 58, 1);
+    water.scale.set(lake.widthRadius, lake.lengthRadius, 1);
     water.position.copy(location);
     chunk.group.add(water);
   }

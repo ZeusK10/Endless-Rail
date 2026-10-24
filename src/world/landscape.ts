@@ -43,13 +43,15 @@ export class Landscape {
     const brokenRock = (this.noise(s / 37 + 14, offset / 33 - 5, 83) - 0.5) * 7;
     const sharpRidges = Math.pow(this.noise(s / 105, offset / 80, 91), 4) * 12;
     const biome = biomeAt(s);
+    const distantMountains = Math.pow(Math.max(0, (away - 130) / 510), 1.28) *
+      (28 + this.noise(s / 710, offset / 420, 144) * 77);
     const transition = biomeBlend(s);
     const lakesideWeight = (transition.from === "lakeside" ? 1 - transition.blend : 0) +
       (transition.to === "lakeside" ? transition.blend : 0);
     const lakesideValley = -4.5 * lakesideWeight;
     let height = track + corridor * (
       rolling + secondary + ridges + gullies + brokenRock +
-      sharpRidges + lakesideValley);
+      sharpRidges + distantMountains + lakesideValley);
 
     // Bridges cross actual depressions; tunnel and cutting sections reshape
     // the surrounding hills while preserving a safe excavated rail corridor.
@@ -65,24 +67,72 @@ export class Landscape {
       height += 12 * strength * bank;
     }
 
-    // Shorelines carve into the same height field, so water never floats
-    // over ordinary hills. Lakes always regenerate at the same coordinates.
-    const index = Math.floor(s / CHUNK_LENGTH);
-    if (biome === "lakeside" && ((index % 5) + 5) % 5 === 1) {
-      const lake = this.lake(index);
-      const radius = Math.hypot(
-        (s - lake.s) / 78, (offset - lake.offset) / 60);
-      const carve = 1 - smooth(0.75, 1.28, radius);
-      height = THREE.MathUtils.lerp(
-        height, Math.min(height, lake.waterY - 1.6), carve);
+    // A real water channel cuts across each guaranteed bridge corridor.
+    // The meandering path is sampled in rail coordinates on BOTH sides of a
+    // chunk boundary; water is always below the bridge deck.
+    const river = this.river(s, offset);
+    if (river) {
+      const carve = 1 - smooth(22, 72, Math.abs(s - river.centerS));
+      height = THREE.MathUtils.lerp(height,
+        Math.min(height, river.waterY - 1.5), carve);
+    }
+    const lake = this.nearestLake(s);
+    if (lake) {
+      const normalized = Math.hypot((s - lake.s) / lake.lengthRadius,
+        (offset - lake.offset) / lake.widthRadius);
+      const carve = 1 - smooth(.76, 1.25, normalized);
+      height = THREE.MathUtils.lerp(height,
+        Math.min(height, lake.waterY - 1.7), carve);
     }
     return height;
   }
 
-  lake(index: number): { s: number; offset: number; waterY: number } {
-    const s = index * CHUNK_LENGTH + CHUNK_LENGTH * 0.5;
-    const offset = (hash(this.rail.seed + 51, index) > 0.5 ? 1 : -1) * 98;
-    return { s, offset, waterY: this.rail.point(s).y - 3.2 };
+  /** Stable river path that crosses the railway at a planned bridge. */
+  river(s: number, offset: number): { centerS: number; waterY: number; halfWidth: number } | null {
+    const sector = Math.round((s - 750) / 1550);
+    const origin = sector * 1550 + 750;
+    if (this.rail.featureAt(origin) !== "bridge") return null;
+    const centerS = origin +
+      Math.sin(offset / 106 + hash(this.rail.seed, sector, 881) * 6.28) * 42 +
+      Math.sin(offset / 46 + sector) * 10;
+    if (Math.abs(s - centerS) > 80) return null;
+    return {
+      centerS,
+      waterY: this.rail.point(origin).y - 5.0,
+      halfWidth: 20 + hash(this.rail.seed, sector, 882) * 7,
+    };
+  }
+
+  // Larger water bodies appear in every biome, with wider shorelines in the
+  // lakeside valley. Their centers are independent of streamed chunks.
+  lake(index: number): {
+    s: number; offset: number; waterY: number; lengthRadius: number; widthRadius: number;
+  } {
+    const s = index * 3650 + 1100;
+    const biome = biomeAt(s);
+    const size = biome === "lakeside" ? 1.18 : biome === "cherry" ? .78 : 1;
+    const offset = (hash(this.rail.seed, index, 991) > .5 ? 1 : -1) *
+      (95 + hash(this.rail.seed, index, 992) * 28);
+    return {
+      s, offset, waterY: this.rail.point(s).y - 5.1,
+      lengthRadius: (190 + hash(this.rail.seed, index, 993) * 48) * size,
+      widthRadius: (112 + hash(this.rail.seed, index, 994) * 30) * size,
+    };
+  }
+
+  nearestLake(s: number): ReturnType<Landscape["lake"]> | null {
+    const index = Math.round((s - 1100) / 3650);
+    if (index < 0) return null;
+    const lake = this.lake(index);
+    return Math.abs(s - lake.s) < lake.lengthRadius * 1.26 ? lake : null;
+  }
+
+  isWater(s: number, offset: number): boolean {
+    const river = this.river(s, offset);
+    if (river && Math.abs(s - river.centerS) < river.halfWidth) return true;
+    const lake = this.nearestLake(s);
+    return lake !== null && Math.hypot((s - lake.s) / lake.lengthRadius,
+      (offset - lake.offset) / lake.widthRadius) < 1;
   }
 
   /** Tiny-scale noise for meadow color, rock outcrops and forest clusters. */
