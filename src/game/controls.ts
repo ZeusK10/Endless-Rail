@@ -6,6 +6,8 @@ export interface InputFrame {
   throttleTapUp: boolean;
   throttleTapDown: boolean;
   brake: number;
+  locomotiveBrake: number;
+  emergency: boolean;
   mode: boolean;
   reverse: boolean;
   forward: boolean;
@@ -27,6 +29,7 @@ export interface InputFrame {
 
 export class Controls {
   private readonly keys = new Set<string>();
+  private readonly keyboardTaps = new Set<string>();
   private readonly touch = new Set<string>();
   private readonly pendingTaps = new Set<string>();
   private readonly activeTouchPointers = new Map<number, string>();
@@ -40,15 +43,19 @@ export class Controls {
 
   constructor(canvas: HTMLCanvasElement) {
     window.addEventListener("keydown", (event) => {
-      if ((event.target as HTMLElement | null)?.closest("input, select, textarea, button, [contenteditable]")) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, select, textarea, [contenteditable]") && event.code !== "Escape") return;
+      if (target?.closest("button") && ["Space", "Enter"].includes(event.code)) return;
       if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(event.code)) {
         event.preventDefault();
       }
       this.keys.add(event.code);
+      if (!event.repeat) this.keyboardTaps.add(event.code);
     });
     window.addEventListener("keyup", (event) => this.keys.delete(event.code));
     window.addEventListener("blur", () => {
       this.keys.clear();
+      this.keyboardTaps.clear();
       this.touch.clear();
       this.pendingTaps.clear();
       this.activeTouchPointers.clear();
@@ -122,7 +129,7 @@ export class Controls {
       this.keys.has(key) || this.touch.has(touch);
     const pressed = (key: string, action: string, buttonIndex: number) =>
       this.edge(action, down(key, action) || button(buttonIndex) > 0.45) ||
-      this.pendingTaps.has(action);
+      this.pendingTaps.has(action) || this.keyboardTaps.has(key);
     const cameraX = stick(axis(2));
     const cameraY = stick(axis(3));
     const pointerX = this.deltaX;
@@ -149,6 +156,8 @@ export class Controls {
           this.pendingTaps.has("brake") ? 1 : 0,
         button(6),
       ),
+      locomotiveBrake: down("KeyJ", "locoBrake") ? .75 : 0,
+      emergency: pressed("KeyB", "emergency", 10),
       mode: pressed("KeyM", "mode", 5),
       reverse: pressed("KeyR", "reverse", 14),
       forward: pressed("KeyF", "forward", 15),
@@ -168,6 +177,7 @@ export class Controls {
       pause: pressed("Escape", "pause", 9),
     };
     this.pendingTaps.clear();
+    this.keyboardTaps.clear();
     return frame;
   }
 }

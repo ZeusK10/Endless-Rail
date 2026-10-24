@@ -205,3 +205,46 @@ button:active { transform: scale(.97); }
 @media (prefers-reduced-motion: reduce) {
   .settings-drawer { transition: none; }
 }
+
+/* Only contextual driving prompts appear outside the Settings drawer. */
+.driving-notice { pointer-events: auto; position: absolute; right: 18px; top: 18px;
+  padding: 11px 14px; border-radius: 12px; background: #fffaf0ed;
+  border: 1px solid #e8cb95; color: #6d4b20; font-size: 12px; font-weight: 750;
+  max-width: min(340px, 42vw); box-shadow: 0 7px 25px #344d4033; }
+.safety-warning { border-color: #edb2a1; background: #fff0e9f2; color: #9c3932; }
+.activity-notice { top: 75px; display: flex; align-items: center; gap: 10px; }
+.activity-notice button { border: 0; border-radius: 8px; padding: 7px 10px;
+  background: #327d65; color: white; font-size: 12px; font-weight: 850; }
+.audio-mixer { margin: 15px 0; padding: 12px; border-radius: 12px; background: #eaf4e9; }
+.audio-mixer h4 { margin: 0 0 10px; font-size: 12px; }
+.audio-mixer label { display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; font-size: 12px; padding: 5px 0; }
+.audio-mixer input { flex: 1; max-width: 190px; accent-color: #327d65; }
+@media (max-width: 800px) {
+  .driving-notice { top: auto; bottom: 118px; right: 9px; max-width: 240px; font-size: 11px; }
+  .activity-notice { top: auto; bottom: 170px; }
+}
+
+.emergency-control { background: #c2574a !important; color: #fff !important; border-color: #a73e36 !important; }
+.driver-message { top: 145px; border-color: #accfcb; background: #edf9f5; color: #32645c; }
+@media (max-width: 800px) { .driver-message { top: auto; bottom: 224px; } }
+
+.loading-status { position: absolute; left: 18px; top: 158px;
+  border-radius: 9px; background: #fff9e2ed; color: #866a33;
+  padding: 6px 10px; font-size: 11px; font-weight: 700; }
+@media (pointer: coarse) and (orientation: portrait) {
+  .hud-main { top: max(8px, env(safe-area-inset-top)); left: 8px;
+    width: min(330px, calc(100vw - 16px)); }
+  .touch-controls { bottom: max(18px, env(safe-area-inset-bottom));
+    align-items: end; gap: 7px; }
+  .touch-cluster { max-width: 49%; flex-wrap: wrap; }
+  .touch-cluster button { min-width: 40px; height: 42px; padding: 0 7px; }
+  .driving-notice { right: 7px; bottom: 150px; }
+  .activity-notice { bottom: 204px; }
+  .driver-message { bottom: 258px; }
+}
+
+/* Compact, touch-friendly day/night controls inside the existing settings drawer. */
+.sky-heading { margin: 17px 0 2px; color: #456e64; font-size: 13px; }
+#time-of-day { width: min(160px, 46%); accent-color: #408c79; }
+.sky-help { font-size: 12px; line-height: 1.5; opacity: .78; margin: 5px 0 13px; }

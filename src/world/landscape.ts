@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { RailPath } from "../sim/rail";
-import { CHUNK_LENGTH, biomeAt, hash } from "../game/constants";
+import { CHUNK_LENGTH, biomeAt, biomeBlend, hash } from "../game/constants";
 
 /**
  * Continuous height field, addressable by track distance and lateral offset.
@@ -40,10 +40,30 @@ export class Landscape {
     const ridges = Math.pow(Math.max(0, (away - 20) / 160), 1.22) *
       (11 + this.noise(s / 490, offset / 265, 37) * 30);
     const gullies = -13 * this.noise(s / 125 + 17, offset / 88 - 15, 47);
+    const brokenRock = (this.noise(s / 37 + 14, offset / 33 - 5, 83) - 0.5) * 7;
+    const sharpRidges = Math.pow(this.noise(s / 105, offset / 80, 91), 4) * 12;
     const biome = biomeAt(s);
-    const lakesideValley = biome === "lakeside" ? -4.5 : 0;
+    const transition = biomeBlend(s);
+    const lakesideWeight = (transition.from === "lakeside" ? 1 - transition.blend : 0) +
+      (transition.to === "lakeside" ? transition.blend : 0);
+    const lakesideValley = -4.5 * lakesideWeight;
     let height = track + corridor * (
-      rolling + secondary + ridges + gullies + lakesideValley);
+      rolling + secondary + ridges + gullies + brokenRock +
+      sharpRidges + lakesideValley);
+
+    // Bridges cross actual depressions; tunnel and cutting sections reshape
+    // the surrounding hills while preserving a safe excavated rail corridor.
+    const feature = this.rail.featureAt(s);
+    const strength = this.rail.featureStrength(s);
+    if (feature === "bridge") {
+      height -= 17 * strength * (1 - smooth(16, 62, away));
+    } else if (feature === "tunnel") {
+      const bank = smooth(6, 22, away) * (1 - smooth(74, 120, away));
+      height += 19 * strength * bank;
+    } else if (feature === "cutting") {
+      const bank = smooth(8, 27, away) * (1 - smooth(59, 96, away));
+      height += 12 * strength * bank;
+    }
 
     // Shorelines carve into the same height field, so water never floats
     // over ordinary hills. Lakes always regenerate at the same coordinates.

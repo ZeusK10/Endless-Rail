@@ -1,7 +1,9 @@
 import * as THREE from "three";
 import "./style.css";
 import { RailPath } from "./sim/rail";
-import { TrainSimulation, type DrivingMode } from "./sim/train";
+import { TrainSimulation, type DrivingMode, type TrainType } from "./sim/train";
+import { WeatherSystem } from "./game/weather";
+import { SkySystem, formatTimeOfDay } from "./game/sky";
 import { WorldStream } from "./world/world";
 import { TrainView } from "./game/train-view";
 import { Controls } from "./game/controls";
@@ -24,7 +26,8 @@ const renderer = new THREE.WebGLRenderer({
 });
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 container.appendChild(renderer.domElement);
-scene.add(new THREE.HemisphereLight("#ffffff", "#819f78", 2.7));
+const ambientLight = new THREE.HemisphereLight("#ffffff", "#819f78", 2.7);
+scene.add(ambientLight);
 const sunlight = new THREE.DirectionalLight("#fff0cf", 2.2);
 sunlight.position.set(-40, 75, 35);
 scene.add(sunlight);
@@ -37,6 +40,8 @@ const trainView = new TrainView(scene, rail);
 const controls = new Controls(renderer.domElement);
 const activities = new ActivityManager(seed);
 const audio = new TrainAudio();
+const weather = new WeatherSystem(scene, camera, seed);
+const sky = new SkySystem(scene, camera, ambientLight, sunlight, seed);
 
 const startScreen = element<HTMLElement>("start-screen");
 const pauseScreen = element<HTMLElement>("pause-screen");
@@ -52,9 +57,29 @@ const distanceValue = element<HTMLElement>("distance-value");
 const modeValue = element<HTMLElement>("mode-value");
 const biomeValue = element<HTMLElement>("biome-value");
 const directionValue = element<HTMLElement>("direction-value");
+const cruiseTarget = element<HTMLElement>("cruise-target");
+const speedLimitValue = element<HTMLElement>("speed-limit-value");
+const driverMessage = element<HTMLElement>("driver-message");
+const sensitivityInput = element<HTMLInputElement>("camera-sensitivity");
+const adaptiveQualityToggle = element<HTMLInputElement>("adaptive-quality");
+const trainTypeSelect = element<HTMLSelectElement>("train-type-select");
+const weatherToggle = element<HTMLInputElement>("weather-toggle");
+const weatherValue = element<HTMLElement>("weather-value");
+const timeInput = element<HTMLInputElement>("time-of-day");
+const timeValue = element<HTMLElement>("time-value");
+const dayLengthSelect = element<HTMLSelectElement>("day-length");
+const loadingStatus = element<HTMLElement>("loading-status");
+const safetyWarning = element<HTMLElement>("safety-warning");
+const activityNotice = element<HTMLElement>("activity-notice");
+const activityNoticeLabel = element<HTMLElement>("activity-notice-label");
+const activityJoinButton = element<HTMLButtonElement>("activity-join-button");
 const controllerValue = element<HTMLElement>("controller-value");
 const activityValue = element<HTMLElement>("activity-value");
 const achievementValue = element<HTMLElement>("achievement-value");
+const comfortValue = element<HTMLElement>("comfort-value");
+const bestSpeedValue = element<HTMLElement>("best-speed-value");
+const overspeedValue = element<HTMLElement>("overspeed-value");
+const milestoneValue = element<HTMLElement>("milestones-value");
 const throttleValue = element<HTMLElement>("throttle-value");
 const brakeValue = element<HTMLElement>("brake-value");
 const riskValue = element<HTMLElement>("risk-value");
@@ -87,6 +112,13 @@ const flyMovement = new THREE.Vector3();
 let lastTime = 0;
 let accumulator = 0;
 let quality = 1;
+let adaptiveScale = 1;
+let averageFrameMs = 16.7;
+let lastAdaptiveCheck = 0;
+let lastHudUpdate = 0;
+let cameraSensitivity = 1;
+let driverMessageUntil = 0;
+let lastActivityMessage = "";
 let lastControllerName = "";
 const forward = new THREE.Vector3();
 const side = new THREE.Vector3();
@@ -99,14 +131,26 @@ function resize(): void {
   const height = window.innerHeight;
   camera.aspect = width / Math.max(1, height);
   camera.updateProjectionMatrix();
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5) * quality);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5) * quality * adaptiveScale);
   renderer.setSize(width, height);
 }
 window.addEventListener("resize", resize);
+sensitivityInput.addEventListener("input", () => {
+  cameraSensitivity = sensitivityInput.valueAsNumber / 100;
+});
+function applyGraphics(): void {
+  world.setDensity(Math.max(.45, Math.min(1.2, quality * adaptiveScale)));
+  world.setViewScale(adaptiveScale);
+  trainView.setEffectsQuality(Math.max(.4, Math.min(1, quality * adaptiveScale)));
+  resize();
+}
 qualitySelect.addEventListener("change", () => {
   quality = Number(qualitySelect.value) || 1;
-  world.setDensity(quality <= 0.7 ? 0.5 : quality >= 1.3 ? 1.2 : 1);
-  resize();
+  applyGraphics();
+});
+adaptiveQualityToggle.addEventListener("change", () => {
+  adaptiveScale = 1;
+  applyGraphics();
 });
 resize();
 
@@ -118,12 +162,30 @@ function setSettings(open: boolean): void {
   settingsButton.setAttribute("aria-expanded", String(settingsOpen));
   settingsScrim.hidden = !settingsOpen;
   if (settingsOpen) settingsClose.focus();
-  else if (document.activeElement === settingsClose) settingsButton.focus();
+  else if (settingsDrawer.contains(document.activeElement)) settingsButton.focus();
 }
 
 settingsButton.addEventListener("click", () => setSettings(!settingsOpen));
 settingsClose.addEventListener("click", () => setSettings(false));
 settingsScrim.addEventListener("click", () => setSettings(false));
+trainTypeSelect.addEventListener("change", () => {
+  const type = trainTypeSelect.value as TrainType;
+  if (simulation.setTrainType(type)) {
+    trainView.setTrainType(type);
+    audio.setEngineType(type);
+  } else {
+    trainTypeSelect.value = simulation.trainType;
+    driverMessage.textContent = "Stop the train before switching locomotives";
+    driverMessageUntil = performance.now() + 2700;
+  }
+});
+weatherToggle.addEventListener("change", () => weather.setEnabled(weatherToggle.checked));
+timeInput.addEventListener("input", () => {
+  sky.setTimeOfDay(timeInput.valueAsNumber);
+  timeValue.textContent = formatTimeOfDay(sky.hour);
+});
+dayLengthSelect.addEventListener("change", () =>
+  sky.setCycleMinutes(Number(dayLengthSelect.value)));
 modeButtons.forEach(button => button.addEventListener("click", () => {
   simulation.setMode(button.dataset.mode as DrivingMode);
 }));
@@ -134,6 +196,16 @@ function toggleLights(): void {
 }
 lightsButton.addEventListener("click", toggleLights);
 activityButton.addEventListener("click", () => activities.activate(simulation.distance));
+activityJoinButton.addEventListener("click", () => activities.activate(simulation.distance));
+const volumeNames = ["master", "engine", "rails", "horn", "effects"] as const;
+function updateAudioMix(): void {
+  const mix = Object.fromEntries(volumeNames.map(name => [name,
+    element<HTMLInputElement>("volume-" + name).valueAsNumber / 100]));
+  audio.setMix(mix);
+}
+volumeNames.forEach(name => element<HTMLInputElement>("volume-" + name)
+  .addEventListener("input", updateAudioMix));
+updateAudioMix();
 freeCamButton.addEventListener("click", () => {
   setFreeCamera(!freeCamera);
   setSettings(false);
@@ -212,9 +284,9 @@ function setFreeCamera(enabled: boolean): void {
 }
 
 function moveFreeCamera(input: ReturnType<Controls["read"]>, dt: number): void {
-  freeYaw -= input.cameraX * dt * 2 + input.pointerX * 0.004;
+  freeYaw -= (input.cameraX * dt * 2 + input.pointerX * 0.004) * cameraSensitivity;
   freePitch = THREE.MathUtils.clamp(
-    freePitch - input.cameraY * dt * 1.7 - input.pointerY * 0.004, -1.47, 1.47);
+    freePitch - (input.cameraY * dt * 1.7 + input.pointerY * 0.004) * cameraSensitivity, -1.47, 1.47);
   flyDirection.set(-Math.sin(freeYaw), 0, -Math.cos(freeYaw));
   flySide.set(Math.cos(freeYaw), 0, -Math.sin(freeYaw));
   flyMovement.copy(flyDirection).multiplyScalar(input.flyForward)
@@ -250,9 +322,17 @@ function updateCamera(dt: number): void {
   } else if (cameraMode === 2) {
     desiredCamera.copy(target).addScaledVector(forward, 19);
     desiredCamera.y += 8;
-  } else {
+  } else if (cameraMode === 3) {
     desiredCamera.copy(target).addScaledVector(forward, 2.1);
     desiredCamera.y += 4.2;
+  } else if (cameraMode === 4) {
+    desiredCamera.copy(target).addScaledVector(side, 38)
+      .addScaledVector(forward, 15);
+    desiredCamera.y += 5.5;
+  } else {
+    desiredCamera.copy(target).addScaledVector(forward, -34)
+      .addScaledVector(side, Math.sin(simulation.distance / 75) * 24);
+    desiredCamera.y += 16;
   }
   const aim = target.clone().addScaledVector(forward, cameraMode === 3 ? 28 : 7);
   aim.y += cameraMode === 3 ? 3.3 : 2.2;
@@ -269,6 +349,10 @@ function updateInterface(): void {
   speedValue.textContent = String(Math.round(simulation.speedKmh));
   distanceValue.textContent = (simulation.traveled / 1000).toFixed(1);
   modeValue.textContent = simulation.mode.toUpperCase();
+  cruiseTarget.hidden = simulation.mode !== "cruise";
+  cruiseTarget.textContent = "TARGET " + Math.round(simulation.targetSpeed * 3.6) + " KM/H";
+  speedLimitValue.textContent = String(simulation.speedLimitKmh);
+  speedLimitValue.className = simulation.speedKmh > simulation.speedLimitKmh + 5 ? "risk-high" : "";
   modeButtons.forEach(button => button.setAttribute("aria-pressed",
     String(button.dataset.mode === simulation.mode)));
   biomeValue.textContent = world.biomeName;
@@ -283,7 +367,29 @@ function updateInterface(): void {
     ? "risk-high" : simulation.derailmentRisk > 0.35 ? "risk-medium" : "";
   activityValue.textContent = activities.prompt || activities.message ||
     "Follow the horizon. Optional activities appear along the tracks.";
+  const chance = simulation.derailmentChance10s;
+  safetyWarning.hidden = !simulation.derailmentEnabled || simulation.derailed || chance < 0.08;
+  if (!safetyWarning.hidden) {
+    safetyWarning.textContent = "⚠ Derailment risk " + Math.round(chance * 100) +
+      "% over 10 seconds — slow down";
+  }
+  driverMessage.hidden = performance.now() > driverMessageUntil;
+  activityNotice.hidden = !activities.prompt;
+  activityNoticeLabel.textContent = activities.prompt;
+  activityJoinButton.hidden = !activities.prompt.includes("nearby");
   achievementValue.textContent = String(activities.completed);
+  comfortValue.textContent = String(Math.round(activities.comfortScore));
+  bestSpeedValue.textContent = String(Math.round(activities.bestSpeedKmh));
+  overspeedValue.textContent = String(Math.round(activities.overspeedMeters));
+  milestoneValue.textContent = String(activities.milestones);
+  weatherValue.textContent = weather.label;
+  timeValue.textContent = formatTimeOfDay(sky.hour);
+  if (!settingsOpen || document.activeElement !== timeInput) {
+    timeInput.value = String(Math.round(sky.hour * 4) / 4);
+  }
+  loadingStatus.hidden = !playing || audio.audioProgress >= 1;
+  loadingStatus.textContent = "Loading railway audio: " +
+    Math.round(audio.audioProgress * 100) + "%";
   recoverButton.hidden = !simulation.derailed;
   if (controls.gamepadName !== lastControllerName) {
     lastControllerName = controls.gamepadName;
@@ -295,6 +401,18 @@ function updateInterface(): void {
 renderer.setAnimationLoop((time) => {
   const dt = lastTime === 0 ? 0 : Math.min((time - lastTime) / 1000, 0.05);
   lastTime = time;
+  if (playing && !paused && dt > 0) {
+    averageFrameMs = averageFrameMs * .96 + dt * 1000 * .04;
+    if (adaptiveQualityToggle.checked && time - lastAdaptiveCheck > 7000) {
+      lastAdaptiveCheck = time;
+      const next = averageFrameMs > 23 ? Math.max(.65, adaptiveScale - .12) :
+        averageFrameMs < 17 && adaptiveScale < 1 ? Math.min(1, adaptiveScale + .06) : adaptiveScale;
+      if (Math.abs(next - adaptiveScale) > .01) {
+        adaptiveScale = next;
+        applyGraphics();
+      }
+    }
+  }
   const input = controls.read();
 
   if (!playing) {
@@ -305,14 +423,25 @@ renderer.setAnimationLoop((time) => {
   }
 
   if (playing && !paused) {
-    if (input.mode) simulation.cycleMode();
-    if (input.reverse) simulation.setDirection(-1);
-    if (input.forward) simulation.setDirection(1);
+    if (input.mode && !freeCamera && !settingsOpen) simulation.cycleMode();
+    if (input.reverse && !simulation.setDirection(-1)) {
+      driverMessage.textContent = "Stop completely before reversing";
+      driverMessageUntil = performance.now() + 2400;
+    }
+    if (input.forward && !simulation.setDirection(1)) {
+      driverMessage.textContent = "Stop completely before changing direction";
+      driverMessageUntil = performance.now() + 2400;
+    }
+    if (input.emergency) {
+      simulation.emergencyStop();
+      driverMessage.textContent = "EMERGENCY BRAKE APPLIED";
+      driverMessageUntil = performance.now() + 2900;
+    }
     if (input.lights) toggleLights();
     if (input.freeCamera) setFreeCamera(!freeCamera);
     if (input.camera) {
       if (freeCamera) setFreeCamera(false);
-      else cameraMode = (cameraMode + 1) % 4;
+      else cameraMode = (cameraMode + 1) % 6;
     }
     if (input.horn) {
       if (simulation.derailed) simulation.recover();
@@ -323,15 +452,17 @@ renderer.setAnimationLoop((time) => {
       moveFreeCamera(input, dt);
       // Keyboard navigation in free-fly mode must never brake the train.
       simulation.applyBrake(0);
+      simulation.setIndependentBrake(0);
     } else {
       if (input.throttleTapUp) simulation.adjustThrottle(0.055);
       if (input.throttleTapDown) simulation.adjustThrottle(-0.055);
       if (input.throttleUp && !input.throttleTapUp) simulation.adjustThrottle(dt * 0.43);
       if (input.throttleDown && !input.throttleTapDown) simulation.adjustThrottle(-dt * 0.43);
       simulation.applyBrake(input.brake);
-      cameraYaw += input.cameraX * dt * 1.5 + input.pointerX * 0.004;
+      simulation.setIndependentBrake(input.locomotiveBrake);
+      cameraYaw += (input.cameraX * dt * 1.5 + input.pointerX * 0.004) * cameraSensitivity;
       cameraPitch = THREE.MathUtils.clamp(
-        cameraPitch + input.cameraY * dt + input.pointerY * 0.004, -0.55, 1.1);
+        cameraPitch + (input.cameraY * dt + input.pointerY * 0.004) * cameraSensitivity, -0.55, 1.1);
     }
 
     accumulator += dt;
@@ -342,14 +473,22 @@ renderer.setAnimationLoop((time) => {
     }
     if (iterations >= 4) accumulator = 0;
     activities.update(simulation.distance, simulation.speedKmh,
-      simulation.brake, simulation.mode);
+      simulation.brake, simulation.mode, simulation.acceleration,
+      simulation.speedLimitKmh);
+    if (activities.message && activities.message !== lastActivityMessage) {
+      lastActivityMessage = activities.message;
+      driverMessage.textContent = activities.message;
+      driverMessageUntil = performance.now() + 2900;
+    }
   }
 
   world.update(simulation.distance, simulation.speed,
     freeCamera ? -freePosition.z : undefined);
   trainView.update(simulation.distance, simulation.speed, dt, world.originPoint,
-    simulation.throttle, simulation.derailed);
+    simulation.throttle, simulation.derailed, playing && !paused);
   updateCamera(Math.max(dt, 1 / 60));
+  weather.update(simulation.distance, playing && !paused ? dt : 0);
+  sky.update(dt, playing && !paused, weather.rainAmount, weather.mistAmount);
   audio.update({
     speedKmh: simulation.speedKmh,
     throttle: simulation.throttle,
@@ -360,6 +499,9 @@ renderer.setAnimationLoop((time) => {
     derailed: simulation.derailed,
     paused: !playing || paused,
   });
-  updateInterface();
+  if (time - lastHudUpdate > 100 || !playing) {
+    lastHudUpdate = time;
+    updateInterface();
+  }
   renderer.render(scene, camera);
 });

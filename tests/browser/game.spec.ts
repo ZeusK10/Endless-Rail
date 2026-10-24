@@ -1,0 +1,54 @@
+import { test, expect } from "@playwright/test";
+
+test("journey, sliding settings, mode and audio controls", async ({ page }) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", error => pageErrors.push(error.message));
+  await page.goto("/");
+  await expect(page.locator("#start-screen")).toBeVisible();
+  await page.getByRole("button", { name: /Start journey/i }).click();
+  await expect(page.locator("#game-hud")).toBeVisible();
+  await page.getByRole("button", { name: "Open settings" }).click();
+  await expect(page.locator("#settings-drawer")).toHaveClass(/is-open/);
+
+  await page.locator("#train-type-select").selectOption("electric");
+  await expect(page.locator("#train-type-select")).toHaveValue("electric");
+  await page.locator('[data-mode="cruise"]').click();
+  await expect(page.locator('[data-mode="cruise"]')).toHaveAttribute("aria-pressed", "true");
+  await page.locator("#quality-select").selectOption("0.7");
+  await page.locator("#volume-rails").evaluate((slider: HTMLInputElement) => {
+    slider.value = "45";
+    slider.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await expect(page.locator("#volume-rails")).toHaveValue("45");
+  await page.locator("#derail-toggle").check();
+  await page.locator("#weather-toggle").uncheck();
+  await page.locator("#day-length").selectOption("8");
+  await expect(page.locator("#day-length")).toHaveValue("8");
+  await page.locator("#time-of-day").evaluate((slider: HTMLInputElement) => {
+    slider.value = "0";
+    slider.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await expect(page.locator("#time-value")).toHaveText("00:00");
+
+  await page.getByRole("button", { name: "Close settings" }).last().click();
+  await expect(page.locator("#settings-drawer")).not.toHaveClass(/is-open/);
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#pause-screen")).toBeVisible();
+  await page.getByRole("button", { name: "Resume journey" }).click();
+  await expect(page.locator("#pause-screen")).toBeHidden();
+  expect(pageErrors).toEqual([]);
+});
+
+test("free camera and keyboard horn remain available", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.goto("/");
+  await page.locator("#play-button").click();
+  await page.keyboard.press("h");
+  await page.locator("#settings-button").click();
+  await page.locator("#drawer-freecam-button").click();
+  await expect(page.locator("#free-controls")).not.toHaveAttribute("hidden", "");
+  await page.keyboard.press("v");
+  await expect(page.locator("#free-controls")).toHaveAttribute("hidden", "");
+  expect(errors).toEqual([]);
+});
