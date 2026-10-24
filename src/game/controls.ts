@@ -140,7 +140,6 @@ export class Controls {
       flyStrafe: THREE.MathUtils.clamp(flyStrafe, -1, 1),
       flyVertical: THREE.MathUtils.clamp(flyVertical, -1, 1),
       flyFast: this.keys.has("ControlLeft") || button(7) > 0.5,
-      activity: pressed("KeyE", "activity", 2),
       pause: pressed("Escape", "pause", 9),
     };
   }
