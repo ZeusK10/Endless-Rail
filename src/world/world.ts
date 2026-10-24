@@ -66,6 +66,45 @@ const tunnelRock = new THREE.MeshLambertMaterial({ color: "#827e77", flatShading
 const tunnelInterior = new THREE.MeshLambertMaterial({ color: "#4e5559", side: THREE.DoubleSide, flatShading: true });
 const portalStone = new THREE.MeshLambertMaterial({ color: "#c2b9a2", flatShading: true });
 const tunnelLamp = new THREE.MeshBasicMaterial({ color: "#ffc581" });
+const stationWood = new THREE.MeshLambertMaterial({ color: "#957b5e" });
+const stationWall = new THREE.MeshLambertMaterial({ color: "#d9cec0" });
+const stationRoof = new THREE.MeshLambertMaterial({ color: "#658285" });
+const stationEdge = new THREE.MeshLambertMaterial({ color: "#e2d4b6" });
+const darkCloth = new THREE.MeshLambertMaterial({ color: "#344b52" });
+const fishingRodMaterial = new THREE.LineBasicMaterial({ color: "#594b3d" });
+const passengerClothes = [
+  "#b76f55", "#6d8fb0", "#d4a761", "#9a6c9b", "#668d71",
+].map(color => new THREE.MeshLambertMaterial({ color }));
+const skinTone = new THREE.MeshLambertMaterial({ color: "#ba9074" });
+const boatBrown = new THREE.MeshLambertMaterial({ color: "#8b5b3b" });
+const floatingLeaf = new THREE.MeshLambertMaterial({
+  color: "#7eaa55", side: THREE.DoubleSide,
+});
+const peopleHead = new THREE.SphereGeometry(.24, 8, 6);
+const boatLeafShape = new THREE.PlaneGeometry(.7, .32);
+boatLeafShape.rotateX(-Math.PI / 2);
+const stationSignCache = new Map<number, THREE.SpriteMaterial>();
+function stationSignMaterial(id: number): THREE.SpriteMaterial {
+  const cached = stationSignCache.get(id);
+  if (cached) return cached;
+  const canvas = document.createElement("canvas");
+  canvas.width = 512; canvas.height = 128;
+  const context = canvas.getContext("2d");
+  if (context) {
+    context.fillStyle = "#223c43"; context.fillRect(0, 0, 512, 128);
+    context.strokeStyle = "#e9d79d"; context.lineWidth = 6;
+    context.strokeRect(6, 6, 500, 116);
+    context.fillStyle = "#fff4cd";
+    context.textAlign = "center"; context.textBaseline = "middle";
+    context.font = "bold 48px sans-serif";
+    context.fillText(["CEDAR HALT", "RIVER CROSS", "HIGH MEADOW"][id % 3], 256, 67);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
+  stationSignCache.set(id, material);
+  return material;
+}
 const soilColor = paint("#ad8f6f");
 const alpineRock = paint("#747a7e");
 const alpineSnow = paint("#e9f0ec");
@@ -189,6 +228,7 @@ export class WorldStream {
     this.createTunnelOverburden(chunk, start, end);
     this.createLandmarks(chunk, start, end);
     this.createRiver(chunk, start, end);
+    this.createStation(chunk, start, end);
     populateLandscape({ chunk, rail: this.rail, landscape: this.landscape },
       index, start, end, this.densityScale);
     if (villageRegion(this.rail.seed, index)) {
@@ -792,6 +832,106 @@ export class WorldStream {
     }
   }
 
+  private person(root: THREE.Group, x: number, y: number, z: number,
+    colorIndex: number, sitting = false): void {
+    const person = new THREE.Group();
+    person.position.set(x, y, z);
+    const torso = new THREE.Mesh(sharedBeam, passengerClothes[colorIndex % passengerClothes.length]);
+    torso.scale.set(.48, sitting ? .92 : 1.15, .35);
+    torso.position.y = sitting ? .96 : 1.5;
+    person.add(torso);
+    const head = new THREE.Mesh(peopleHead, skinTone);
+    head.position.y = sitting ? 1.72 : 2.37;
+    person.add(head);
+    for (const side of [-1, 1]) {
+      const leg = new THREE.Mesh(sharedBeam, darkCloth);
+      leg.scale.set(.19, sitting ? .42 : .8, .20);
+      leg.position.set(side * .17, sitting ? .38 : .42, sitting ? -.25 : 0);
+      person.add(leg);
+    }
+    root.add(person);
+  }
+
+  private createStation(chunk: Chunk, start: number, end: number): void {
+    const first = Math.floor((start - 125) / 3500);
+    const last = Math.floor((end - 125) / 3500);
+    for (let index = first; index <= last; index++) {
+      const s = index * 3500 + 125;
+      if (index < 0 || s < start || s >= end || this.rail.featureAt(s) !== "open") continue;
+      const side = index % 2 ? -1 : 1;
+      const station = new THREE.Group();
+      const platformCenter = this.local(chunk, s, side * 7.4);
+      const railY = this.rail.point(s).y - chunk.center.y;
+      station.position.set(platformCenter.x, railY, platformCenter.z);
+      station.rotation.y = Math.atan2(-this.rail.tangent(s).x, -this.rail.tangent(s).z);
+      const rural = index % 3 === 0, modern = index % 3 === 1;
+      // One continuous platform foundation follows the track. The roof,
+      // information board, benches, lamps and commuters vary by station.
+      const slab = new THREE.Mesh(sharedBeam, stationEdge);
+      slab.scale.set(rural ? 4.3 : 5.8, .44, rural ? 72 : 98);
+      slab.position.set(0, .24, 0);
+      station.add(slab);
+      const stripe = new THREE.Mesh(sharedBeam, crossingWarning);
+      stripe.scale.set(.16, .025, rural ? 71 : 97);
+      stripe.position.set(-side * 2.0, .48, 0);
+      station.add(stripe);
+      const building = new THREE.Mesh(sharedBeam, stationWall);
+      building.scale.set(modern ? 7 : 5.9, modern ? 5.7 : 4.2, rural ? 12 : 17);
+      building.position.set(side * 7.1, (modern ? 5.7 : 4.2) / 2, -10);
+      station.add(building);
+      const roof = new THREE.Mesh(sharedBeam, stationRoof);
+      roof.scale.set(modern ? 8.1 : 7.5, .31, rural ? 13 : 18);
+      roof.position.set(side * 7.1, modern ? 5.9 : 4.4, -10);
+      station.add(roof);
+      if (!modern) {
+        const ridge = new THREE.Mesh(new THREE.ConeGeometry(5.4, 2.4, 4), stationRoof);
+        ridge.rotation.y = Math.PI / 4;
+        ridge.scale.z = 1.7;
+        ridge.position.set(side * 7.1, 5.6, -10);
+        station.add(ridge);
+        chunk.geometries.push(ridge.geometry);
+      } else {
+        const glass = new THREE.Mesh(sharedBeam, new THREE.MeshLambertMaterial({ color: "#6b9baa" }));
+        glass.scale.set(4.5, 2.6, .11);
+        glass.position.set(side * 7.1, 3.5, -18.55);
+        station.add(glass);
+      }
+      for (const z of [-25, 12, 27]) {
+        const bench = new THREE.Mesh(sharedBeam, stationWood);
+        bench.scale.set(2.5, .22, .75);
+        bench.position.set(side * .4, .95, z);
+        station.add(bench);
+        for (const x of [-.8, .8]) {
+          const leg = new THREE.Mesh(sharedBeam, darkCloth);
+          leg.scale.set(.13, .7, .13);
+          leg.position.set(side * .4 + x, .63, z);
+          station.add(leg);
+        }
+      }
+      for (const z of [-32, 0, 33]) {
+        const post = new THREE.Mesh(sharedBeam, stationRoof);
+        post.scale.set(.18, 4.7, .18);
+        post.position.set(side * 1.9, 2.75, z);
+        station.add(post);
+        const lantern = new THREE.Mesh(new THREE.SphereGeometry(.42, 7, 6), tunnelLamp);
+        lantern.position.set(side * 1.9, 5.04, z);
+        station.add(lantern);
+        chunk.geometries.push(lantern.geometry);
+      }
+      const board = new THREE.Sprite(stationSignMaterial(Math.abs(index)));
+      board.position.set(side * 5.3, 4.2, 4);
+      board.scale.set(8.3, 2.1, 1);
+      station.add(board);
+      for (let i = 0; i < (rural ? 7 : 13); i++) {
+        const z = -38 + ((i * 47 + index * 19) % 79);
+        const x = side * (.2 + (i % 4) * .65);
+        this.person(station, x, .48, z, i + index * 2, i % 5 === 0);
+      }
+      station.name = "populated-scenic-station";
+      chunk.group.add(station);
+    }
+  }
+
   private createLake(chunk: Chunk, lake: ReturnType<Landscape["lake"]>): void {
     // River-space oval fits the shore carved by Landscape even on curved rails.
     const positions: number[] = [];
@@ -812,7 +952,86 @@ export class WorldStream {
     geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
     geometry.setIndex(indices);
     geometry.computeVertexNormals();
-    chunk.group.add(new THREE.Mesh(geometry, waterMaterial));
+    const surface = new THREE.Mesh(geometry, waterMaterial);
+    surface.name = "shoreline-lake";
+    chunk.group.add(surface);
     chunk.geometries.push(geometry);
+
+    // Floating leaves use a single instanced draw call with reproducible
+    // positions, rather than hundreds of translucent alpha sprites.
+    const leaves = new THREE.InstancedMesh(boatLeafShape, floatingLeaf, 38);
+    const matrix = new THREE.Matrix4();
+    const orientation = new THREE.Quaternion();
+    for (let i = 0; i < 38; i++) {
+      const angle = i * 2.399963 + this.rail.seed * .0001;
+      const radius = Math.sqrt((i + .5) / 38) * .8;
+      const leafS = lake.s + Math.cos(angle) * lake.lengthRadius * radius;
+      const leafOffset = lake.offset + Math.sin(angle) * lake.widthRadius * radius;
+      const pos = this.local(chunk, leafS, leafOffset);
+      pos.y = lake.waterY - chunk.center.y - .22;
+      orientation.setFromAxisAngle(new THREE.Vector3(0, 1, 0), angle);
+      matrix.compose(pos, orientation,
+        new THREE.Vector3(.65 + i % 3 * .16, 1, .7 + i % 2 * .22));
+      leaves.setMatrixAt(i, matrix);
+    }
+    leaves.instanceMatrix.needsUpdate = true;
+    leaves.computeBoundingSphere();
+    leaves.name = "floating-lake-leaves";
+    chunk.group.add(leaves);
+    chunk.instances.push(leaves);
+
+    // Rowboats carry seated passengers and oars; shoreline anglers enjoy
+    // the water from solid ground. All detail is deterministic per lake.
+    for (let i = 0; i < 3; i++) {
+      const angle = .9 + i * 1.84;
+      const boatS = lake.s + Math.cos(angle) * lake.lengthRadius * .44;
+      const boatOffset = lake.offset + Math.sin(angle) * lake.widthRadius * .43;
+      const boat = new THREE.Group();
+      boat.position.copy(this.local(chunk, boatS, boatOffset));
+      boat.position.y = lake.waterY - chunk.center.y - .1;
+      boat.rotation.y = angle + Math.PI / 3;
+      const hullGeometry = new THREE.SphereGeometry(2.5, 9, 6);
+      const hull = new THREE.Mesh(hullGeometry, boatBrown);
+      hull.scale.set(.55, .32, 1.15);
+      hull.position.y = -.25;
+      boat.add(hull);
+      const seat = new THREE.Mesh(sharedBeam, stationWood);
+      seat.scale.set(1.65, .16, 1.4);
+      seat.position.y = .23;
+      boat.add(seat);
+      for (const side of [-1, 1]) {
+        const oar = new THREE.Mesh(sharedBeam, stationWood);
+        oar.scale.set(.08, .08, 3.4);
+        oar.position.set(side * 1.47, .18, -.15);
+        oar.rotation.y = side * .66;
+        boat.add(oar);
+      }
+      this.person(boat, 0, .28, .15, i * 3, true);
+      boat.name = "occupied-rowboat";
+      chunk.group.add(boat);
+      chunk.geometries.push(hullGeometry);
+    }
+    for (let i = 0; i < 4; i++) {
+      const fishS = lake.s + (i - 1.5) * lake.lengthRadius * .31;
+      const fishOffset = lake.offset +
+        (i % 2 === 0 ? -1 : 1) * lake.widthRadius *
+        Math.sqrt(Math.max(.06, 1 - Math.pow((fishS - lake.s) / lake.lengthRadius, 2))) * 1.12;
+      const shore = this.local(chunk, fishS, fishOffset);
+      shore.y = this.landscape.height(fishS, fishOffset) - chunk.center.y;
+      this.person(chunk.group, shore.x, shore.y, shore.z, i + 2);
+      const end = this.local(chunk, fishS + 6, lake.offset +
+        (fishOffset - lake.offset) * .65);
+      end.y = lake.waterY - chunk.center.y + .12;
+      const fishingLine = new THREE.BufferGeometry().setFromPoints([
+        shore.clone().add(new THREE.Vector3(0, 2.25, 0)),
+        shore.clone().add(new THREE.Vector3(0, 3.7, 0))
+          .lerp(end, .38),
+        end,
+      ]);
+      const rod = new THREE.Line(fishingLine, fishingRodMaterial);
+      rod.name = "shoreline-fishing-rod";
+      chunk.group.add(rod);
+      chunk.geometries.push(fishingLine);
+    }
   }
 }

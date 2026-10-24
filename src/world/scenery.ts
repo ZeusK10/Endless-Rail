@@ -127,6 +127,8 @@ export function populateLandscape(
     const density = ctx.landscape.vegetationDensity(s, offset);
     // Coherent vegetation noise forms natural groves and meadow clearings.
     if (rand(19) > 0.28 + Math.pow(density, 1.5) * 0.72) continue;
+    const nearbyStation = Math.round((s - 125) / 3500) * 3500 + 125;
+    if (Math.abs(s - nearbyStation) < 63 && Math.abs(offset) < 42) continue;
     if (isVillageClearing(seed, index, s, offset) || isWater(ctx, s, offset)) continue;
 
     const biome = biomeAt(s);
