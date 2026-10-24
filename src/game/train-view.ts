@@ -375,6 +375,140 @@ function carriage(index: number): Car {
   return { group, wheels };
 }
 
+
+interface SmokePuff {
+  position: THREE.Vector3; // absolute world position; survives origin rebasing
+  velocity: THREE.Vector3;
+  age: number;
+  duration: number;
+  radius: number;
+  steam: boolean;
+}
+
+/**
+ * A single batched, bounded smoke plume follows the locomotive stacks.
+ * Particles are emitted in world space so they trail behind a moving engine,
+ * never drifting along with the locomotive or snapping on origin rebase.
+ */
+class ExhaustParticles {
+  private static readonly MAX = 80;
+  private readonly mesh: THREE.InstancedMesh;
+  private readonly pool: SmokePuff[] = Array.from(
+    { length: ExhaustParticles.MAX }, () => ({
+      position: new THREE.Vector3(), velocity: new THREE.Vector3(),
+      age: Infinity, duration: 1, radius: 1, steam: false,
+    }));
+  private readonly matrix = new THREE.Matrix4();
+  private readonly position = new THREE.Vector3();
+  private readonly color = new THREE.Color();
+  private readonly sourcePosition = new THREE.Vector3();
+  private readonly defaultRotation = new THREE.Quaternion();
+  private readonly size = new THREE.Vector3();
+  private seed = 0x2f9e4c71;
+  private cursor = 0;
+  private spawnAmount = 0;
+  private emissionIndex = 0;
+  private density = 1;
+
+  constructor(scene: THREE.Scene) {
+    const geometry = new THREE.IcosahedronGeometry(1, 0);
+    const finish = new THREE.MeshBasicMaterial({
+      color: "#ffffff", transparent: true, opacity: 0.29,
+      depthWrite: false, flatShading: true,
+    });
+    this.mesh = new THREE.InstancedMesh(geometry, finish, ExhaustParticles.MAX);
+    this.mesh.name = "locomotive-exhaust";
+    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.mesh.count = 0;
+    this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = 3;
+    scene.add(this.mesh);
+  }
+
+  setQuality(value: number): void {
+    this.density = THREE.MathUtils.clamp(value, 0.4, 1);
+  }
+
+  private random(): number {
+    this.seed = (Math.imul(this.seed, 1664525) + 1013904223) >>> 0;
+    return this.seed / 4294967296;
+  }
+
+  private spawn(
+    stack: THREE.Group, origin: THREE.Vector3, type: TrainType,
+    speed: number, tangent: THREE.Vector3,
+  ): void {
+    const puff = this.pool[this.cursor];
+    this.cursor = (this.cursor + 1) % ExhaustParticles.MAX;
+    puff.steam = type === "steam";
+    stack.getWorldPosition(this.sourcePosition);
+    puff.position.copy(this.sourcePosition).add(origin);
+    puff.position.x += (this.random() - .5) * .16;
+    puff.position.z += (this.random() - .5) * .16;
+    // Rising, expanding exhaust with a gentle slipstream opposite travel.
+    const wind = THREE.MathUtils.clamp(speed * .035, -1.2, 1.2);
+    puff.velocity.set(
+      (this.random() - .5) * .85 - tangent.x * wind,
+      (puff.steam ? 1.42 : .82) + this.random() * .68,
+      (this.random() - .5) * .85 - tangent.z * wind,
+    );
+    puff.age = 0;
+    puff.duration = (puff.steam ? 3.6 : 2.5) * (.84 + this.random() * .4);
+    puff.radius = (puff.steam ? .48 : .31) * (.8 + this.random() * .65);
+  }
+
+  update(
+    dt: number, origin: THREE.Vector3, emitters: THREE.Group[],
+    type: TrainType, throttle: number, speed: number,
+    tangent: THREE.Vector3, active: boolean,
+  ): void {
+    const step = active ? THREE.MathUtils.clamp(dt, 0, .05) : 0;
+    if (step > 0 && emitters.length && type !== "electric") {
+      const rate = type === "steam"
+        ? 7 + throttle * 14 + Math.min(5, Math.abs(speed) * .3)
+        : 1.7 + throttle * 8;
+      // Fractional accumulator stays bounded after a hidden tab or long frame.
+      this.spawnAmount = Math.min(2, this.spawnAmount + rate * this.density * step);
+      while (this.spawnAmount >= 1) {
+        this.spawnAmount -= 1;
+        const emitter = emitters[this.emissionIndex++ % emitters.length];
+        this.spawn(emitter, origin, type, speed, tangent);
+      }
+    } else if (type === "electric") {
+      this.spawnAmount = 0;
+    }
+
+    let visible = 0;
+    for (const puff of this.pool) {
+      if (puff.age >= puff.duration) continue;
+      puff.age += step;
+      if (puff.age >= puff.duration) continue;
+      puff.position.addScaledVector(puff.velocity, step);
+      const progress = puff.age / puff.duration;
+      const fade = Math.min(1, (1 - progress) * 4);
+      const radius = puff.radius * (0.63 + 2 * progress) * fade;
+      this.size.setScalar(radius);
+      this.position.copy(puff.position).sub(origin);
+      this.matrix.compose(this.position, this.defaultRotation, this.size);
+      this.mesh.setMatrixAt(visible, this.matrix);
+      if (puff.steam) {
+        this.color.setRGB(.74 + progress * .23, .76 + progress * .22,
+          .74 + progress * .24);
+      } else {
+        this.color.setRGB(.31 + progress * .42, .35 + progress * .43,
+          .35 + progress * .44);
+      }
+      this.mesh.setColorAt(visible, this.color);
+      visible++;
+    }
+    this.mesh.count = visible;
+    if (visible) {
+      this.mesh.instanceMatrix.needsUpdate = true;
+      if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+    }
+  }
+}
+
 export class TrainView {
   private readonly groups: THREE.Group[] = [];
   private readonly wheels: THREE.Group[] = [];
@@ -386,8 +520,10 @@ export class TrainView {
   lights = true;
   private wheelRotation = 0;
   private derailBlend = 0;
+  private readonly smoke: ExhaustParticles;
 
   constructor(private readonly scene: THREE.Scene, private readonly rail: RailPath) {
+    this.smoke = new ExhaustParticles(scene);
     const loco = locomotive();
     this.locomotives = {
       diesel: loco, electric: electricLocomotive(), steam: steamLocomotive(),
@@ -423,6 +559,10 @@ export class TrainView {
     this.activeType = type;
   }
 
+  setEffectsQuality(value: number): void {
+    this.smoke.setQuality(value);
+  }
+
   toggleLights(): void {
     this.lights = !this.lights;
     this.headlights.forEach(mesh => { mesh.visible = this.lights; });
@@ -431,7 +571,7 @@ export class TrainView {
 
   update(
     distance: number, speed: number, dt: number,
-    origin: THREE.Vector3, throttle = 0, derailed = false,
+    origin: THREE.Vector3, throttle = 0, derailed = false, active = true,
   ): void {
     this.derailBlend = THREE.MathUtils.damp(this.derailBlend, derailed ? 1 : 0, 3, Math.max(dt, 0));
     this.groups.forEach((group, i) => {
@@ -453,9 +593,10 @@ export class TrainView {
     this.wheelRotation -= speed * dt / 0.56;
     for (const wheel of this.wheels) wheel.rotation.x = this.wheelRotation;
 
-    // Chimney tremor suggests a working diesel without expensive particle effects.
-    this.exhaust.forEach((stack, i) => {
-      stack.rotation.z = Math.sin(distance * 0.4 + i) * throttle * 0.07;
-    });
+    // Update emitters after the locomotive world matrix, before spawning
+    // smoke in absolute coordinates. Electric locomotives emit no smoke.
+    this.groups[0].updateMatrixWorld(true);
+    this.smoke.update(dt, origin, this.exhaust, this.activeType,
+      throttle, speed, this.rail.tangent(distance), active && !derailed);
   }
 }

@@ -135,6 +135,7 @@ sensitivityInput.addEventListener("input", () => {
 function applyGraphics(): void {
   world.setDensity(Math.max(.45, Math.min(1.2, quality * adaptiveScale)));
   world.setViewScale(adaptiveScale);
+  trainView.setEffectsQuality(Math.max(.4, Math.min(1, quality * adaptiveScale)));
   resize();
 }
 qualitySelect.addEventListener("change", () => {
@@ -468,7 +469,7 @@ renderer.setAnimationLoop((time) => {
   world.update(simulation.distance, simulation.speed,
     freeCamera ? -freePosition.z : undefined);
   trainView.update(simulation.distance, simulation.speed, dt, world.originPoint,
-    simulation.throttle, simulation.derailed);
+    simulation.throttle, simulation.derailed, playing && !paused);
   updateCamera(Math.max(dt, 1 / 60));
   weather.update(simulation.distance, paused ? 0 : dt);
   audio.update({

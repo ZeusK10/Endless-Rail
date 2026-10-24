@@ -4,7 +4,10 @@ import { RailPath } from "../src/sim/rail";
 import { TrainSimulation } from "../src/sim/train";
 import { Landscape } from "../src/world/landscape";
 import { ActivityManager } from "../src/game/activities";
-import { hash } from "../src/game/constants";
+import { hash, CHUNK_LENGTH } from "../src/game/constants";
+import { populateVillage } from "../src/world/scenery";
+import { TrainView } from "../src/game/train-view";
+import * as THREE from "three";
 
 test("rail path, limits and terrain are deterministic and finite", () => {
   const a = new RailPath(82731), b = new RailPath(82731);
@@ -81,4 +84,56 @@ test("scenery seed salts decorrelate placement coordinates", () => {
   const varianceX = xs.reduce((v,x) => v+(x-mx)**2, 0);
   const varianceY = ys.reduce((v,y) => v+(y-my)**2, 0);
   assert.ok(Math.abs(covariance / Math.sqrt(varianceX*varianceY)) < .16);
+});
+
+test("village houses are detailed and share cached render geometry", () => {
+  const rail = new RailPath(76120);
+  const landscape = new Landscape(rail);
+  const createVillage = () => {
+    const chunk = {
+      group: new THREE.Group(), center: new THREE.Vector3(),
+      instances: [] as THREE.InstancedMesh[],
+    };
+    populateVillage({ chunk, rail, landscape }, 7, 7 * CHUNK_LENGTH + CHUNK_LENGTH / 2);
+    return chunk.group;
+  };
+  const a = createVillage(), b = createVillage();
+  const housesA = a.children.filter(item => item instanceof THREE.Group);
+  const housesB = b.children.filter(item => item instanceof THREE.Group);
+  assert.ok(housesA.length >= 7);
+  assert.equal(housesA.length, housesB.length);
+  const first = housesA[0] as THREE.Group;
+  const repeat = housesB[0] as THREE.Group;
+  assert.ok(first.children.length >= 8 && first.children.length < 30);
+  const pieces = first.children as THREE.Mesh[];
+  assert.ok(pieces.some(mesh => mesh.geometry.getAttribute("position").count > 600));
+  assert.equal(pieces[0].geometry, (repeat.children[0] as THREE.Mesh).geometry);
+});
+
+test("diesel and steam emit bounded, world-space exhaust; electric stays clean", () => {
+  const rail = new RailPath(7401);
+  const scene = new THREE.Scene();
+  const view = new TrainView(scene, rail);
+  const particles = scene.getObjectByName("locomotive-exhaust") as THREE.InstancedMesh;
+  assert.ok(particles);
+  assert.equal(particles.count, 0);
+  const origin = new THREE.Vector3();
+  for (let i = 0; i < 110; i++) {
+    view.update(i * .4, 12, 1 / 60, origin, .9, false, true);
+  }
+  assert.ok(particles.count > 0 && particles.count <= particles.instanceMatrix.count);
+  view.setTrainType("electric");
+  for (let i = 0; i < 340; i++) {
+    view.update(44 + i * .4, 12, 1 / 60, origin, .9, false, true);
+  }
+  assert.equal(particles.count, 0);
+  view.setTrainType("steam");
+  view.setEffectsQuality(.45);
+  for (let i = 0; i < 110; i++) {
+    view.update(190 + i * .2, 7, 1 / 60, origin, .8, false, true);
+  }
+  assert.ok(particles.count > 0 && particles.count <= 80);
+  const countBeforePause = particles.count;
+  view.update(211, 0, 1, new THREE.Vector3(500, 0, 0), 0, false, false);
+  assert.equal(particles.count, countBeforePause);
 });

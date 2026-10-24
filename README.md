@@ -8,8 +8,8 @@ A lightweight, single-player, browser-based toy-train journey through a procedur
 - Deterministic rail alignment with straight-ish stretches, varied bends and seeded bridge, tunnel and cutting corridors. Track limits are available to the HUD and route-aware cruise/autodrive.
 - Streamed, deterministic multi-level terrain with rolling valleys, high ridgelines, sculpted lakes and railway cuttings; reversing regenerates the same places.
 - Dense three-tier broadleaf, pine and blossom forests, colorful bushes, flowers and rocky outcrops in Green Highlands, Cherry Blossom Valley and Lakeside Valley.
-- Irregular biome-themed villages with gardens, roads, landmark towers, window/roof details and distinctive surroundings.
-- Selectable diesel, electric and steam locomotive models (only when stopped), each with different acceleration and speed characteristics; passenger cars retain their details and animated wheelsets.
+- Irregular biome-themed villages with gardens, roads and landmarks. Cached, merged low-poly houses have pitched gables, roof tile courses, window mullions/shutters, doors, flower boxes, stonework and distinct highland chimneys, cherry verandas and lakeside porches.
+- Selectable diesel, electric and steam locomotive models (only when stopped), each with different acceleration and speed characteristics; passenger cars retain their details and animated wheelsets. A batched, low-poly exhaust plume emits darker diesel soot or fuller rising steam, while electric locomotives have no smoke.
 - Smooth acceleration, braking, coasting and gradient physics, with independent locomotive braking, emergency stopping, look-ahead speed limiting, and visible derailment reactions.
 - Manual, cruise control and autodrive; optional, graded derailment probability based on speed, cornering and harsh braking. HUD estimates the risk over the next ten seconds.
 - Controller, keyboard and touchscreen controls; four train cameras plus free-fly camera with independent world streaming.
@@ -40,7 +40,7 @@ npm run test:browser   # installs Chromium separately: npx playwright install ch
 
 ## Train audio and derailment
 
-Audio starts after a user gesture as required by iPad/Safari browsers. Recorded diesel playback rate/volume respond to throttle, the recorded wheel-rail layer takes over as speed increases, and filtered joint clicks and brake sounds respond to running conditions. Curve-flange squeal increases on bends and at elevated risk.
+Audio starts after a user gesture as required by iPad/Safari browsers. Recorded diesel playback rate/volume respond to throttle, the recorded wheel-rail layer takes over as speed increases, and filtered joint clicks and brake sounds respond to running conditions. Curve-flange squeal increases on bends and at elevated risk. The locomotive exhaust is a separate visual effect: it trails in world space, pauses with gameplay, and scales emission rate with throttle and graphics quality.
 
 Derailment remains OFF by default. When enabled in the pause menu, the HUD displays an **estimated ten-second probability** if the current conditions persist. High speed in sharper curves and hard braking increase that probability; a derailment stops the train and plays a one-shot crash sound. Recovery resets the locomotive, not the world. No audio settings or game state are saved.
 
