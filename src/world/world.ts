@@ -154,6 +154,7 @@ export class WorldStream {
     this.createRail(chunk, start, end);
     this.createInfrastructure(chunk, start, end);
     this.createTunnel(chunk, start, end);
+    this.createTunnelOverburden(chunk, start, end);
     this.createLandmarks(chunk, start, end);
     this.createRiver(chunk, start, end);
     populateLandscape({ chunk, rail: this.rail, landscape: this.landscape },
@@ -534,6 +535,59 @@ export class WorldStream {
         chunk.group.add(lamp);
       }
     }
+  }
+
+  /**
+   * An upper hillside layer seals the tunnel roof into the surrounding rock.
+   * The lower corridor is excavated by Landscape.height; this outer layer
+   * joins both banks so the arch is no longer an exposed floating tube.
+   */
+  private createTunnelOverburden(chunk: Chunk, start: number, end: number): void {
+    const offsets = [-53, -32, -20, -11, 0, 11, 20, 32, 53];
+    const vertices: number[] = [], colors: number[] = [], indices: number[] = [];
+    const steps = 40;
+    for (let i = 0; i < steps; i++) {
+      const s0 = start + (end - start) * i / steps;
+      const s1 = start + (end - start) * (i + 1) / steps;
+      const mid = (s0 + s1) / 2;
+      if (this.rail.featureAt(mid) !== "tunnel" ||
+        this.rail.featureStrength(mid) < .28) continue;
+      const base = vertices.length / 3;
+      for (const s of [s0, s1]) {
+        const strength = this.rail.featureStrength(s);
+        const coverage = THREE.MathUtils.smoothstep(strength, .20, .78);
+        for (const offset of offsets) {
+          const away = Math.abs(offset);
+          const shoulder = 1 - THREE.MathUtils.smoothstep(away, 7, 53);
+          const naturalY = this.landscape.height(s, offset);
+          const reservoir = this.landscape.underwaterLake(s);
+          const ridgeY = reservoir ? reservoir.waterY - 2.0 :
+            this.rail.point(s).y + 14.5 + 2.3 * Math.sin(s / 82);
+          const coverY = naturalY + Math.max(0, ridgeY - naturalY) *
+            coverage * shoulder;
+          const p = this.local(chunk, s, offset);
+          p.y = coverY - chunk.center.y;
+          vertices.push(p.x, p.y, p.z);
+          const tint = new THREE.Color(away < 14 ? "#98988c" : "#7f9875");
+          tint.multiplyScalar(.91 + .08 * Math.sin(s * .07 + offset * .18));
+          colors.push(tint.r, tint.g, tint.b);
+        }
+      }
+      for (let j = 0; j < offsets.length - 1; j++) {
+        const a = base + j, b = a + offsets.length;
+        indices.push(a, b, a + 1, a + 1, b, b + 1);
+      }
+    }
+    if (!vertices.length) return;
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
+    geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+    geometry.setIndex(indices);
+    geometry.computeVertexNormals();
+    const hill = new THREE.Mesh(geometry, groundMaterial);
+    hill.name = "tunnel-hillside";
+    chunk.group.add(hill);
+    chunk.geometries.push(geometry);
   }
 
   private createLandmarks(chunk: Chunk, start: number, end: number): void {

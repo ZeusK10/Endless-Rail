@@ -12,6 +12,27 @@ const trainProfiles: Record<TrainType, { acceleration: number; topSpeed: number;
 const clamp = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, value));
 
+/** Independent, testable safety model shared by HUD and actual failure rolls. */
+export function derailmentRatePerSecond(risk: number): number {
+  const severity = clamp(risk, 0, 1);
+  return .0002 * severity + .24 * Math.pow(severity, 2.2);
+}
+
+export function derailmentRiskLevel(
+  speedKmh: number, limitKmh: number, curvature: number,
+  brake: number, emergency = false,
+): number {
+  const overspeed = clamp((speedKmh - limitKmh - 2) /
+    Math.max(18, limitKmh * .34), 0, 2);
+  const curve = clamp(curvature / .00035, 0, 1.8);
+  const brakeStress = clamp((brake - .62) / .38, 0, 1) *
+    clamp((speedKmh - 55) / 55, 0, 1);
+  const highSpeedBend = curve * clamp((speedKmh - 88) / 58, 0, 1);
+  return clamp(overspeed * (.15 + .39 * curve) +
+    .11 * highSpeedBend + .16 * brakeStress +
+    (emergency ? .11 * clamp((speedKmh - 60) / 60, 0, 1) : 0), 0, 1);
+}
+
 /**
  * An intentionally lightweight one-dimensional locomotive model.
  * Signed speed and distance allow reverse running on the same track.
@@ -41,7 +62,7 @@ export class TrainSimulation {
 
   /** Probability of derailment if current conditions persist for ten seconds. */
   get derailmentChance10s(): number {
-    const hazard = 0.5 * Math.pow(this.derailmentRisk, 4);
+    const hazard = derailmentRatePerSecond(this.derailmentRisk);
     return 1 - Math.exp(-hazard * 10);
   }
 
@@ -184,19 +205,13 @@ export class TrainSimulation {
       this.brake = 1;
     }
 
-    // Probabilistic but seeded failure model. Curves, excessive speed and
-    // aggressive braking raise risk gradually instead of an instant cliff.
-    // The base path has broad bends, so use relative curve sharpness, not
-    // only raw lateral G, to make the warning meaningful in this toy world.
-    const speedStress = clamp((this.speedKmh - Math.min(65, this.speedLimitKmh)) / 60, 0, 1);
-    const curveStress = clamp(curvature / 0.00036, 0, 1);
-    const brakeStress = this.brake > 0.65
-      ? 0.16 * clamp((this.speedKmh - 55) / 70, 0, 1) : 0;
-    this.derailmentRisk = clamp(
-      0.04 * speedStress +
-      0.86 * Math.pow(speedStress, 1.4) * curveStress + brakeStress, 0, 1);
-    const hazardPerSecond = 0.5 * Math.pow(this.derailmentRisk, 4);
-    if (this.derailmentEnabled &&
+    // The HUD's ten-second estimate uses this exact same instantaneous
+    // hazard rate as the seeded per-frame failure check.
+    this.derailmentRisk = derailmentRiskLevel(
+      this.speedKmh, this.speedLimitKmh, curvature,
+      Math.max(this.brake, this.independentBrake), this.emergency);
+    const hazardPerSecond = derailmentRatePerSecond(this.derailmentRisk);
+    if (this.derailmentEnabled && hazardPerSecond > 0 &&
       this.random() < 1 - Math.exp(-hazardPerSecond * dt)) {
       this.derailed = true;
       this.speed = 0;

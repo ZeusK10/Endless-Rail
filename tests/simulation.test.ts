@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { RailPath } from "../src/sim/rail";
-import { TrainSimulation } from "../src/sim/train";
+import { TrainSimulation, derailmentRatePerSecond, derailmentRiskLevel } from "../src/sim/train";
 import { Landscape } from "../src/world/landscape";
 import { ActivityManager } from "../src/game/activities";
 import { hash, CHUNK_LENGTH, biomeAt, biomeBoundary } from "../src/game/constants";
@@ -241,8 +241,13 @@ test("tunnels create a real continuous arch within raised terrain", () => {
   const world = new WorldStream(scene, rail);
   world.update(s);
   const arches: THREE.Object3D[] = [];
-  scene.traverse(o => { if (o.name === "tunnel-arch") arches.push(o); });
+  const hills: THREE.Object3D[] = [];
+  scene.traverse(o => {
+    if (o.name === "tunnel-arch") arches.push(o);
+    if (o.name === "tunnel-hillside") hills.push(o);
+  });
   assert.ok(arches.length > 0);
+  assert.ok(hills.length > 0, "tunnel bore must be enclosed by an upper hillside");
   const railHeight = rail.point(s).y;
   assert.ok(world.terrainHeight(s, 35) > railHeight + 5);
   world.clear();
@@ -289,4 +294,54 @@ test("rail uses shaped steel profiles, contiguous ballast and shared fasteners",
   assert.ok(ballast.geometry.getAttribute("color").count > 500);
   assert.ok(fasteners.count >= 250);
   world.clear();
+});
+
+test("calibrated derailment hazard matches its displayed 10-second probability", () => {
+  const safe = derailmentRiskLevel(65, 85, .00045, 0);
+  const unsafe = derailmentRiskLevel(112, 48, .00055, .86);
+  assert.ok(safe < .01);
+  assert.ok(unsafe > .75);
+  assert.ok(derailmentRatePerSecond(unsafe) > 100 * derailmentRatePerSecond(safe));
+  const rail = new RailPath(60123);
+  const sim = new TrainSimulation(rail);
+  sim.derailmentRisk = unsafe;
+  const expected = 1 - Math.exp(-derailmentRatePerSecond(unsafe) * 10);
+  assert.ok(Math.abs(sim.derailmentChance10s - expected) < 1e-12);
+});
+
+test("failure toggle prevents derailment, but dangerous driving derails seeded trials", () => {
+  let failures = 0;
+  for (let i = 0; i < 24; i++) {
+    const rail = new RailPath(1000 + i);
+    rail.speedLimitAt = () => 42;
+    rail.curvature = () => .00051;
+    rail.grade = () => 0;
+    const disabled = new TrainSimulation(rail);
+    disabled.speed = 108 / 3.6;
+    for (let t = 0; t < 150; t++) disabled.update(1 / 60);
+    assert.equal(disabled.derailed, false);
+    const dangerous = new TrainSimulation(rail);
+    dangerous.speed = 108 / 3.6;
+    dangerous.derailmentEnabled = true;
+    for (let t = 0; t < 360 && !dangerous.derailed; t++) dangerous.update(1 / 60);
+    if (dangerous.derailed) failures++;
+  }
+  assert.ok(failures >= 9, "overspeeding through tight bends should cause measurable seeded failures");
+});
+
+test("forward travel and reverse revisit remain bounded and deterministic", () => {
+  const rail = new RailPath(2026);
+  const scene = new THREE.Scene();
+  const world = new WorldStream(scene, rail);
+  world.setDensity(.45);
+  world.setViewScale(.58);
+  const sample = [0, 320, 1900, 4800].map(s => world.terrainHeight(s, 74));
+  for (const distance of [0, 1700, 3900, 6100, 4800, 2200, 0]) {
+    world.update(distance, 15);
+    assert.ok(scene.children.length <= 22, "streaming should retain bounded chunks");
+  }
+  assert.deepEqual([0, 320, 1900, 4800].map(s => world.terrainHeight(s, 74)), sample);
+  assert.ok(scene.getObjectByName("rail-profile"), "rails survive reverse revisiting");
+  world.clear();
+  assert.equal(scene.children.length, 0);
 });

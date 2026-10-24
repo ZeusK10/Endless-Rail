@@ -112,6 +112,7 @@ let topCollapsed = false;
 let bottomCollapsed = false;
 let lastSettingsTrigger: HTMLButtonElement = settingsButton;
 let cameraMode = 0;
+let previousCameraMode = -1;
 let cameraYaw = 0;
 let cameraPitch = 0;
 let freeCamera = false;
@@ -313,6 +314,7 @@ trainView.update(0, 0, 0, world.originPoint);
 function setFreeCamera(enabled: boolean): void {
   if (enabled === freeCamera) return;
   freeCamera = enabled;
+  if (!enabled) previousCameraMode = -1;
   if (enabled) {
     const at = rail.point(simulation.distance);
     const tangent = rail.tangent(simulation.distance);
@@ -374,8 +376,9 @@ function updateCamera(dt: number): void {
   }
 
   if (cameraMode === 0) {
-    desiredCamera.copy(target).addScaledVector(forward, -17 * Math.cos(cameraYaw))
-      .addScaledVector(side, 17 * Math.sin(cameraYaw));
+    desiredCamera.copy(target).addScaledVector(forward,
+      -(TRAIN_CAR_COUNT + 1.25) * TRAIN_CAR_SPACING * Math.cos(cameraYaw))
+      .addScaledVector(side, (TRAIN_CAR_COUNT + 1.25) * TRAIN_CAR_SPACING * Math.sin(cameraYaw));
     desiredCamera.y += 9 + cameraPitch * 5;
   } else if (cameraMode === 1) {
     desiredCamera.copy(target).addScaledVector(forward, -14);
@@ -418,11 +421,14 @@ function updateCamera(dt: number): void {
       minimumCameraY(worldPosition, rail, world, 1.6) - origin.y);
   }
   const alpha = 1 - Math.exp(-6 * Math.min(dt, .1));
-  if (camera.position.distanceTo(desiredCamera) > 150) {
+  if (camera.position.distanceTo(desiredCamera) > 150 ||
+      previousCameraMode !== cameraMode) {
+    // Switching directly to a preset never sweeps the camera through coaches.
     camera.position.copy(desiredCamera);
   } else {
     camera.position.lerp(desiredCamera, alpha);
   }
+  previousCameraMode = cameraMode;
   camera.lookAt(aim);
 }
 

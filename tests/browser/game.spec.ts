@@ -75,3 +75,26 @@ test("top and bottom gameplay panels collapse independently without losing setti
   await expect(page.locator("#touch-controls")).not.toHaveAttribute("hidden", "");
   expect(errors).toEqual([]);
 });
+
+test("tablet-sized touch viewport keeps controls recoverable and free-look anchored", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", e => errors.push(e.message));
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await page.goto("/");
+  await page.getByRole("button", { name: /Start journey/i }).click();
+  await page.locator("#hud-collapse").click();
+  await expect(page.locator("#hud-collapsed")).toBeVisible();
+  await expect(page.locator("#hud-expand")).toHaveText("⌄");
+  await page.locator("#bottom-controls-toggle").evaluate((button: HTMLButtonElement) => button.click());
+  await expect(page.locator("#bottom-controls-toggle")).toHaveAttribute("aria-expanded", "false");
+  await page.locator("#hud-expand").click();
+  await page.locator("#bottom-controls-toggle").evaluate((button: HTMLButtonElement) => button.click());
+  await page.locator("#settings-button").click();
+  await page.locator("#drawer-freecam-button").click();
+  await expect(page.locator("#free-controls")).toBeVisible();
+  await expect(page.locator("[data-control='flyLeft']")).toHaveAttribute("aria-label", "Look left");
+  await page.locator("[data-control='flyLeft']").click();
+  await page.locator("[data-control='freeCamera']").click();
+  await expect(page.locator("#free-controls")).toHaveAttribute("hidden", "");
+  expect(errors).toEqual([]);
+});
