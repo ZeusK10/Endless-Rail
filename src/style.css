@@ -228,3 +228,18 @@ button:active { transform: scale(.97); }
 .emergency-control { background: #c2574a !important; color: #fff !important; border-color: #a73e36 !important; }
 .driver-message { top: 145px; border-color: #accfcb; background: #edf9f5; color: #32645c; }
 @media (max-width: 800px) { .driver-message { top: auto; bottom: 224px; } }
+
+.loading-status { position: absolute; left: 18px; top: 158px;
+  border-radius: 9px; background: #fff9e2ed; color: #866a33;
+  padding: 6px 10px; font-size: 11px; font-weight: 700; }
+@media (pointer: coarse) and (orientation: portrait) {
+  .hud-main { top: max(8px, env(safe-area-inset-top)); left: 8px;
+    width: min(330px, calc(100vw - 16px)); }
+  .touch-controls { bottom: max(18px, env(safe-area-inset-bottom));
+    align-items: end; gap: 7px; }
+  .touch-cluster { max-width: 49%; flex-wrap: wrap; }
+  .touch-cluster button { min-width: 40px; height: 42px; padding: 0 7px; }
+  .driving-notice { right: 7px; bottom: 150px; }
+  .activity-notice { bottom: 204px; }
+  .driver-message { bottom: 258px; }
+}

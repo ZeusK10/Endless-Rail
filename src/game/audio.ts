@@ -40,6 +40,9 @@ export class TrainAudio {
   private lastJoint = 0;
   private lastDerailed = false;
   private hornBusyUntil = -100;
+  private completedLoads = 0;
+
+  get audioProgress(): number { return this.completedLoads / 3; }
   private mix = { master: 1, engine: 1, rails: 1, horn: 1, effects: 1 };
 
   setMix(values: Record<string, number>): void {
@@ -151,6 +154,8 @@ export class TrainAudio {
       } catch (error) {
         // Keep offline procedural fallback if a preview is unavailable.
         console.warn("Could not load bundled railway audio", name, error);
+      } finally {
+        this.completedLoads++;
       }
     }));
   }

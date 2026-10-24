@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { RailPath } from "../sim/rail";
-import { CHUNK_LENGTH, biomeAt, hash } from "../game/constants";
+import { CHUNK_LENGTH, biomeAt, biomeBlend, hash } from "../game/constants";
 
 /**
  * Continuous height field, addressable by track distance and lateral offset.
@@ -43,7 +43,10 @@ export class Landscape {
     const brokenRock = (this.noise(s / 37 + 14, offset / 33 - 5, 83) - 0.5) * 7;
     const sharpRidges = Math.pow(this.noise(s / 105, offset / 80, 91), 4) * 12;
     const biome = biomeAt(s);
-    const lakesideValley = biome === "lakeside" ? -4.5 : 0;
+    const transition = biomeBlend(s);
+    const lakesideWeight = (transition.from === "lakeside" ? 1 - transition.blend : 0) +
+      (transition.to === "lakeside" ? transition.blend : 0);
+    const lakesideValley = -4.5 * lakesideWeight;
     let height = track + corridor * (
       rolling + secondary + ridges + gullies + brokenRock +
       sharpRidges + lakesideValley);

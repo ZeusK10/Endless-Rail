@@ -56,6 +56,8 @@ const cruiseTarget = element<HTMLElement>("cruise-target");
 const speedLimitValue = element<HTMLElement>("speed-limit-value");
 const driverMessage = element<HTMLElement>("driver-message");
 const sensitivityInput = element<HTMLInputElement>("camera-sensitivity");
+const adaptiveQualityToggle = element<HTMLInputElement>("adaptive-quality");
+const loadingStatus = element<HTMLElement>("loading-status");
 const safetyWarning = element<HTMLElement>("safety-warning");
 const activityNotice = element<HTMLElement>("activity-notice");
 const activityNoticeLabel = element<HTMLElement>("activity-notice-label");
@@ -99,6 +101,10 @@ const flyMovement = new THREE.Vector3();
 let lastTime = 0;
 let accumulator = 0;
 let quality = 1;
+let adaptiveScale = 1;
+let averageFrameMs = 16.7;
+let lastAdaptiveCheck = 0;
+let lastHudUpdate = 0;
 let cameraSensitivity = 1;
 let driverMessageUntil = 0;
 let lastActivityMessage = "";
@@ -114,17 +120,25 @@ function resize(): void {
   const height = window.innerHeight;
   camera.aspect = width / Math.max(1, height);
   camera.updateProjectionMatrix();
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5) * quality);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5) * quality * adaptiveScale);
   renderer.setSize(width, height);
 }
 window.addEventListener("resize", resize);
 sensitivityInput.addEventListener("input", () => {
   cameraSensitivity = sensitivityInput.valueAsNumber / 100;
 });
+function applyGraphics(): void {
+  world.setDensity(Math.max(.45, Math.min(1.2, quality * adaptiveScale)));
+  world.setViewScale(adaptiveScale);
+  resize();
+}
 qualitySelect.addEventListener("change", () => {
   quality = Number(qualitySelect.value) || 1;
-  world.setDensity(quality <= 0.7 ? 0.5 : quality >= 1.3 ? 1.2 : 1);
-  resize();
+  applyGraphics();
+});
+adaptiveQualityToggle.addEventListener("change", () => {
+  adaptiveScale = 1;
+  applyGraphics();
 });
 resize();
 
@@ -338,6 +352,9 @@ function updateInterface(): void {
   bestSpeedValue.textContent = String(Math.round(activities.bestSpeedKmh));
   overspeedValue.textContent = String(Math.round(activities.overspeedMeters));
   milestoneValue.textContent = String(activities.milestones);
+  loadingStatus.hidden = !playing || audio.audioProgress >= 1;
+  loadingStatus.textContent = "Loading railway audio: " +
+    Math.round(audio.audioProgress * 100) + "%";
   recoverButton.hidden = !simulation.derailed;
   if (controls.gamepadName !== lastControllerName) {
     lastControllerName = controls.gamepadName;
@@ -349,6 +366,18 @@ function updateInterface(): void {
 renderer.setAnimationLoop((time) => {
   const dt = lastTime === 0 ? 0 : Math.min((time - lastTime) / 1000, 0.05);
   lastTime = time;
+  if (playing && !paused && dt > 0) {
+    averageFrameMs = averageFrameMs * .96 + dt * 1000 * .04;
+    if (adaptiveQualityToggle.checked && time - lastAdaptiveCheck > 7000) {
+      lastAdaptiveCheck = time;
+      const next = averageFrameMs > 23 ? Math.max(.65, adaptiveScale - .12) :
+        averageFrameMs < 17 && adaptiveScale < 1 ? Math.min(1, adaptiveScale + .06) : adaptiveScale;
+      if (Math.abs(next - adaptiveScale) > .01) {
+        adaptiveScale = next;
+        applyGraphics();
+      }
+    }
+  }
   const input = controls.read();
 
   if (!playing) {
@@ -433,6 +462,9 @@ renderer.setAnimationLoop((time) => {
     derailed: simulation.derailed,
     paused: !playing || paused,
   });
-  updateInterface();
+  if (time - lastHudUpdate > 100 || !playing) {
+    lastHudUpdate = time;
+    updateInterface();
+  }
   renderer.render(scene, camera);
 });

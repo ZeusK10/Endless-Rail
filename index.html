@@ -45,6 +45,7 @@
       <button id="recover-button" class="recover" hidden>Train derailed — recover</button>
       <div id="safety-warning" class="driving-notice safety-warning" role="status" hidden></div>
       <div id="driver-message" class="driving-notice driver-message" role="status" hidden></div>
+      <div id="loading-status" class="loading-status" role="status" hidden>Preparing railway audio…</div>
       <div id="activity-notice" class="driving-notice activity-notice" hidden>
         <span id="activity-notice-label"></span><button id="activity-join-button">Join</button>
       </div>
@@ -93,6 +94,7 @@
           <div class="journey-summary">Derailment chance: <b id="risk-value">OFF</b></div>
           <label class="setting-row"><span>Camera sensitivity</span>
             <input id="camera-sensitivity" type="range" min="50" max="180" value="100" /></label>
+          <label class="setting-row"><span>Adaptive performance</span><input id="adaptive-quality" type="checkbox" checked /></label>
           <label class="setting-row"><span>Graphics quality</span>
             <select id="quality-select">
               <option value="0.7">Low</option>

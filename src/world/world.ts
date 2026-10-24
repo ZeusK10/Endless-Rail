@@ -48,6 +48,7 @@ export class WorldStream {
   private readonly chunks = new Map<number, Chunk>();
   private readonly landscape: Landscape;
   private densityScale = 1;
+  private viewScale = 1;
   private origin = new THREE.Vector3();
   private originDistance = Number.NaN;
   biomeName = BIOME_NAMES.highlands;
@@ -62,6 +63,10 @@ export class WorldStream {
     if (value === this.densityScale) return;
     this.densityScale = value;
     this.clear();
+  }
+
+  setViewScale(value: number): void {
+    this.viewScale = THREE.MathUtils.clamp(value, .58, 1.3);
   }
 
   get originPoint(): THREE.Vector3 {
@@ -84,8 +89,8 @@ export class WorldStream {
     }
 
     const current = Math.floor(focusDistance / CHUNK_LENGTH);
-    const behind = cameraDistance !== undefined ? 5 : speed < -0.2 ? 6 : 3;
-    const ahead = cameraDistance !== undefined ? 5 : speed < -0.2 ? 3 : 6;
+    const behind = Math.max(2, Math.round((cameraDistance !== undefined ? 5 : speed < -0.2 ? 6 : 3) * this.viewScale));
+    const ahead = Math.max(2, Math.round((cameraDistance !== undefined ? 5 : speed < -0.2 ? 3 : 6) * this.viewScale));
     const desired = new Set<number>();
     for (let index = current - behind; index <= current + ahead; index++) {
       desired.add(index);
