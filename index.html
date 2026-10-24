@@ -2,18 +2,81 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#c8e8ff" />
-    <title>Endless Rail — Technical Preview</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#c9e9ff" />
+    <meta name="description" content="A colorful endless miniature train journey. Drive, explore, and relax." />
+    <title>Endless Rail — A Journey Without a Destination</title>
   </head>
   <body>
     <div id="app"></div>
-    <div class="hud" aria-label="Preview status">
-      <span class="eyebrow">ENDLESS RAIL</span>
-      <h1>First tracks, first horizon.</h1>
-      <p>Technical scene preview — gameplay and world streaming come next.</p>
-      <span class="pill">No saves · Single-player · Low-poly</span>
+
+    <section id="start-screen" class="overlay" aria-label="Main menu">
+      <div class="menu-card">
+        <span class="eyebrow">A JOURNEY WITHOUT A DESTINATION</span>
+        <h1>ENDLESS <span>RAIL</span></h1>
+        <p>All aboard a colorful miniature world that keeps going. Take the controls or let the scenery roll by.</p>
+        <div class="menu-facts">
+          <span>🚂 Toy train</span><span>🌸 Three biomes</span><span>🎮 Gamepad ready</span>
+        </div>
+        <button id="play-button" class="primary">Start journey <span aria-hidden="true">→</span></button>
+        <p class="small">Manual driving · Green Highlands · No saves · Single-player</p>
+      </div>
+    </section>
+
+    <section id="game-hud" class="game-hud" aria-label="Train status" hidden>
+      <div class="hud-main">
+        <div class="hud-title"><span class="eyebrow">ENDLESS RAIL</span><span id="controller-value">Keyboard / touch</span></div>
+        <div class="speed"><strong id="speed-value">0</strong><span>KM/H</span></div>
+        <div class="hud-details">
+          <span id="biome-value">Green Highlands</span><span>·</span>
+          <span id="mode-value">MANUAL</span><span>·</span>
+          <span id="direction-value">FORWARD</span>
+        </div>
+        <div class="hud-details"><span>Throttle <b id="throttle-value">0%</b></span>
+          <span>Brake <b id="brake-value">0%</b></span>
+          <span>Distance <b id="distance-value">0.0</b> km</span></div>
+      </div>
+      <div class="activity-box">
+        <span id="activity-value">Enjoy the journey.</span>
+        <span>✦ <b id="achievement-value">0</b></span>
+      </div>
+      <button id="recover-button" class="recover" hidden>Train derailed — recover</button>
+      <div class="control-hint">W throttle · Q reduce · S brake · M mode · R/F direction · C camera · H horn · E activity · Esc pause</div>
+    </section>
+
+    <div id="touch-controls" class="touch-controls" aria-label="Touch train controls" hidden>
+      <div class="touch-cluster">
+        <button data-control="brake" aria-label="Hold brake">BRAKE</button>
+        <button data-control="throttleDown" aria-label="Reduce throttle">−</button>
+        <button data-control="throttle" class="accent" aria-label="Increase throttle">+</button>
+      </div>
+      <div class="touch-cluster">
+        <button data-control="horn">HORN</button>
+        <button data-control="camera">CAM</button>
+        <button data-control="mode">MODE</button>
+        <button data-control="activity">DO</button>
+      </div>
     </div>
+
+    <section id="pause-screen" class="overlay" aria-label="Paused" hidden>
+      <div class="menu-card compact">
+        <span class="eyebrow">ENDLESS RAIL</span>
+        <h2>Journey paused</h2>
+        <p>Relax, take a break, and continue whenever you're ready.</p>
+        <label class="setting-row"><span>Optional derailment</span>
+          <input id="derail-toggle" type="checkbox" /></label>
+        <label class="setting-row"><span>Graphics quality</span>
+          <select id="quality-select">
+            <option value="0.7">Low</option>
+            <option value="1" selected>Balanced</option>
+            <option value="1.3">High</option>
+          </select></label>
+        <button id="resume-button" class="primary">Resume journey</button>
+        <button id="restart-button" class="secondary">Start a new journey</button>
+        <p class="small">Refreshing resets all progress and settings.</p>
+      </div>
+    </section>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

@@ -8,6 +8,8 @@ export interface InputFrame {
   horn: boolean;
   lights: boolean;
   camera: boolean;
+  cameraX: number;
+  cameraY: number;
   activity: boolean;
   pause: boolean;
 }
@@ -16,9 +18,14 @@ export class Controls {
   private readonly keys = new Set<string>();
   private readonly touch = new Set<string>();
   private readonly edges = new Map<string, boolean>();
+  private dragging = false;
+  private pointerX = 0;
+  private pointerY = 0;
+  private deltaX = 0;
+  private deltaY = 0;
   gamepadName = "";
 
-  constructor() {
+  constructor(canvas: HTMLCanvasElement) {
     window.addEventListener("keydown", (event) => {
       if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(event.code)) {
         event.preventDefault();
@@ -29,9 +36,26 @@ export class Controls {
     window.addEventListener("blur", () => {
       this.keys.clear();
       this.touch.clear();
+      this.dragging = false;
     });
 
-    // Delegation covers buttons created after the controller initializes.
+    canvas.addEventListener("pointerdown", (event) => {
+      this.dragging = true;
+      this.pointerX = event.clientX;
+      this.pointerY = event.clientY;
+      canvas.setPointerCapture(event.pointerId);
+    });
+    canvas.addEventListener("pointermove", (event) => {
+      if (!this.dragging) return;
+      this.deltaX += event.clientX - this.pointerX;
+      this.deltaY += event.clientY - this.pointerY;
+      this.pointerX = event.clientX;
+      this.pointerY = event.clientY;
+    });
+    canvas.addEventListener("pointerup", () => { this.dragging = false; });
+    canvas.addEventListener("pointercancel", () => { this.dragging = false; });
+
+    // Delegation covers on-screen buttons from the HTML overlay.
     document.addEventListener("pointerdown", (event) => {
       const element = (event.target as HTMLElement).closest<HTMLElement>("[data-control]");
       if (!element) return;
@@ -63,10 +87,16 @@ export class Controls {
       (candidate): candidate is Gamepad => Boolean(candidate?.connected)) : undefined;
     this.gamepadName = gamepad?.id ?? "";
     const button = (index: number) => gamepad?.buttons[index]?.value ?? 0;
+    const axis = (index: number) => gamepad?.axes[index] ?? 0;
+    const stick = (value: number) => Math.abs(value) < 0.13 ? 0 : value;
     const down = (key: string, touch: string) =>
       this.keys.has(key) || this.touch.has(touch);
     const pressed = (key: string, action: string, buttonIndex: number) =>
       this.edge(action, down(key, action) || button(buttonIndex) > 0.45);
+    const cameraX = stick(axis(2)) + this.deltaX * 0.016;
+    const cameraY = stick(axis(3)) + this.deltaY * 0.016;
+    this.deltaX = 0;
+    this.deltaY = 0;
 
     return {
       throttleUp: down("KeyW", "throttle") || button(7) > 0.1 ||
@@ -83,6 +113,8 @@ export class Controls {
       lights: pressed("KeyL", "lights", 1),
       activity: pressed("KeyE", "activity", 2),
       camera: pressed("KeyC", "camera", 3),
+      cameraX,
+      cameraY,
       pause: pressed("Escape", "pause", 9),
     };
   }
