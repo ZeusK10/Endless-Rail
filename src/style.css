@@ -115,3 +115,18 @@ button:active { transform: scale(.97); }
   .activity-box { max-width: 235px; }
   .hud-title > span:last-child { display: none; }
 }
+
+.hud-pause {
+  pointer-events: auto;
+  border: 0;
+  color: #366d5d;
+  background: #e2efdc;
+  border-radius: 8px;
+  padding: 5px 8px;
+  font-weight: 800;
+}
+@media (max-width: 800px) {
+  .touch-controls { padding: 0 7px; }
+  .touch-cluster { flex-wrap: wrap; max-width: 56%; }
+  .touch-cluster button { height: 43px; }
+}

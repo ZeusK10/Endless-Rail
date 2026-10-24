@@ -99,9 +99,10 @@ export class TrainSimulation {
     const next = clamp(speed + acceleration * dt, -125 / 3.6, 125 / 3.6);
 
     // Never let service brakes propel the train backwards through zero.
-    if (this.brake > 0 && speed !== 0 && Math.sign(next) !== Math.sign(speed)) {
+    if (this.brake > 0 && (Math.abs(speed) < 0.03 ||
+      (speed !== 0 && Math.sign(next) !== Math.sign(speed)))) {
       this.speed = 0;
-    } else if (Math.abs(next) < 0.02 && this.throttle === 0) {
+    } else if (Math.abs(next) < 0.02 && Math.abs(acceleration) < 0.05) {
       this.speed = 0;
     } else {
       this.speed = next;

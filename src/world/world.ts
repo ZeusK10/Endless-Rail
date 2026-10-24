@@ -14,6 +14,8 @@ interface Chunk {
 
 const trunkGeometry = new THREE.CylinderGeometry(0.24, 0.37, 2.8, 5);
 const crownGeometry = new THREE.DodecahedronGeometry(1.75, 0);
+const pineGeometry = new THREE.ConeGeometry(1.8, 3.6, 6);
+const blossomGeometry = new THREE.IcosahedronGeometry(1.8, 0);
 const sleeperGeometry = new THREE.BoxGeometry(3.6, 0.2, 0.55);
 const houseGeometry = new THREE.BoxGeometry(1, 1, 1);
 const roofGeometry = new THREE.ConeGeometry(1, 1, 4);
@@ -222,7 +224,12 @@ export class WorldStream {
   ): void {
     const count = 46;
     const trunks = new THREE.InstancedMesh(trunkGeometry, trunkMaterial, count);
-    const crowns = new THREE.InstancedMesh(crownGeometry, crownMaterial, count);
+    const crowns = [
+      new THREE.InstancedMesh(crownGeometry, crownMaterial, count),
+      new THREE.InstancedMesh(pineGeometry, crownMaterial, count),
+      new THREE.InstancedMesh(blossomGeometry, crownMaterial, count),
+    ];
+    const typeCounts = [0, 0, 0];
     const matrix = new THREE.Matrix4();
     const rotation = new THREE.Quaternion();
     const position = new THREE.Vector3();
@@ -248,16 +255,26 @@ export class WorldStream {
       position.y += 3.35 * size;
       scale.set(size, size * (0.8 + hash(this.rail.seed + 3, index, i) * 0.4), size);
       matrix.compose(position, rotation, scale);
-      crowns.setMatrixAt(i, matrix);
-      const foliage = FOLIAGE[biomeAt(s)];
+      const treeBiome = biomeAt(s);
+      const speciesRoll = hash(this.rail.seed + 18, index, i);
+      const species = treeBiome === "cherry" && speciesRoll < 0.65
+        ? 2 : speciesRoll < 0.27 ? 1 : 0;
+      const instanceIndex = typeCounts[species]++;
+      crowns[species].setMatrixAt(instanceIndex, matrix);
+      const foliage = FOLIAGE[treeBiome];
       const colorIndex = Math.floor(hash(this.rail.seed + 9, index, i) * foliage.length);
-      crowns.setColorAt(i, new THREE.Color(foliage[colorIndex]));
+      crowns[species].setColorAt(instanceIndex, new THREE.Color(foliage[colorIndex]));
     }
     trunks.instanceMatrix.needsUpdate = true;
-    crowns.instanceMatrix.needsUpdate = true;
-    if (crowns.instanceColor) crowns.instanceColor.needsUpdate = true;
-    chunk.group.add(trunks, crowns);
-    chunk.instances.push(trunks, crowns);
+    chunk.group.add(trunks);
+    chunk.instances.push(trunks);
+    crowns.forEach((mesh, species) => {
+      mesh.count = typeCounts[species];
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      chunk.group.add(mesh);
+      chunk.instances.push(mesh);
+    });
   }
 
   private createVillage(chunk: Chunk, index: number, mid: number): void {
@@ -280,6 +297,21 @@ export class WorldStream {
       roof.scale.set(3.9 * size, 2.4 * size, 3.6 * size);
       roof.position.y = 4.7 * size;
       roof.rotation.y = Math.PI / 4;
+      if (biome === "cherry") {
+        // Lower, wider roofs distinguish the blossom hamlets.
+        roof.scale.set(4.6 * size, 1.6 * size, 4.2 * size);
+      } else if (biome === "lakeside") {
+        // Broad roofs and small porch decks for waterfront cottages.
+        roof.scale.set(4.2 * size, 1.4 * size, 3.8 * size);
+        const deck = new THREE.Mesh(houseGeometry, roofMaterials[2]);
+        deck.scale.set(6.5 * size, 0.18 * size, 2.7 * size);
+        deck.position.set(0, 0.16 * size, -3.0 * size);
+        house.add(deck);
+      } else if (i % 3 === 0) {
+        // A modest barn-like silhouette among the highland cottages.
+        walls.scale.set(6.2 * size, 3.6 * size, 5.1 * size);
+        roof.scale.set(4.6 * size, 2.7 * size, 4.2 * size);
+      }
       house.add(walls, roof);
       chunk.group.add(house);
     }
