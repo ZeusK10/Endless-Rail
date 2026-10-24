@@ -414,7 +414,7 @@ class ExhaustParticles {
     const geometry = new THREE.IcosahedronGeometry(1, 0);
     const finish = new THREE.MeshBasicMaterial({
       color: "#ffffff", transparent: true, opacity: 0.29,
-      depthWrite: false, flatShading: true,
+      depthWrite: false,
     });
     this.mesh = new THREE.InstancedMesh(geometry, finish, ExhaustParticles.MAX);
     this.mesh.name = "locomotive-exhaust";
