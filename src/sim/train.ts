@@ -1,6 +1,13 @@
 import { RailPath } from "./rail";
 
 export type DrivingMode = "manual" | "cruise" | "autodrive";
+export type TrainType = "diesel" | "electric" | "steam";
+
+const trainProfiles: Record<TrainType, { acceleration: number; topSpeed: number; rolling: number }> = {
+  diesel: { acceleration: 1.65, topSpeed: 125, rolling: .12 },
+  electric: { acceleration: 2.1, topSpeed: 145, rolling: .10 },
+  steam: { acceleration: 1.18, topSpeed: 100, rolling: .16 },
+};
 
 const clamp = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, value));
@@ -14,6 +21,10 @@ export class TrainSimulation {
   speed = 0; // meters per second, signed
   throttle = 0;
   brake = 0;
+  independentBrake = 0;
+  emergency = false;
+  acceleration = 0;
+  trainType: TrainType = "diesel";
   direction: 1 | -1 = 1;
   mode: DrivingMode = "manual";
   targetSpeed = 55 / 3.6;
@@ -43,6 +54,35 @@ export class TrainSimulation {
     return Math.abs(this.speed) * 3.6;
   }
 
+  get speedLimitKmh(): number {
+    return Math.round(this.rail.speedLimitAt(this.distance));
+  }
+
+  get brakingDistance(): number {
+    return this.speed * this.speed / (2 * 2.2);
+  }
+
+  setTrainType(type: TrainType): boolean {
+    if (Math.abs(this.speed) > .35 || this.derailed) return false;
+    this.trainType = type;
+    this.throttle = 0;
+    this.brake = 0;
+    this.emergency = false;
+    return true;
+  }
+
+  emergencyStop(): void {
+    if (this.derailed) return;
+    this.mode = "manual";
+    this.throttle = 0;
+    this.brake = 1;
+    this.emergency = true;
+  }
+
+  setIndependentBrake(value: number): void {
+    if (!this.derailed) this.independentBrake = clamp(value, 0, 1);
+  }
+
   setDirection(direction: 1 | -1): boolean {
     if (Math.abs(this.speed) > 0.35 || this.derailed) return false;
     this.direction = direction;
@@ -67,7 +107,7 @@ export class TrainSimulation {
   }
 
   adjustThrottle(amount: number): void {
-    if (this.derailed) return;
+    if (this.derailed || this.emergency) return;
     if (this.mode === "manual") {
       this.throttle = clamp(this.throttle + amount, 0, 1);
     } else if (this.mode === "cruise") {
@@ -78,7 +118,7 @@ export class TrainSimulation {
   applyBrake(value: number): void {
     if (this.derailed) return;
     if (value > 0.08 && this.mode !== "manual") this.setMode("manual");
-    this.brake = clamp(value, 0, 1);
+    this.brake = this.emergency ? 1 : clamp(value, 0, 1);
   }
 
   recover(): void {
@@ -88,6 +128,9 @@ export class TrainSimulation {
     this.brake = 1;
     this.mode = "manual";
     this.derailmentRisk = 0;
+    this.emergency = false;
+    this.independentBrake = 0;
+    this.acceleration = 0;
   }
 
   update(dt: number): void {
@@ -95,10 +138,17 @@ export class TrainSimulation {
     const curvature = this.rail.curvature(this.distance);
 
     if (this.mode !== "manual") {
-      const safeCurveSpeed = Math.sqrt(4.5 / Math.max(curvature, 0.0001));
+      // Plan braking *before* entering curves, bridges and tunnels. At every
+      // preview sample, limit current speed by the reachable braking envelope.
+      let previewLimit = Infinity;
+      for (const ahead of [0, 45, 90, 150, 230, 330]) {
+        const limit = this.rail.speedLimitAt(this.distance + ahead * this.direction) / 3.6;
+        previewLimit = Math.min(previewLimit,
+          Math.sqrt(limit * limit + 2 * 1.75 * Math.max(0, ahead - 18)));
+      }
       const requested = this.mode === "autodrive"
-        ? Math.min(72 / 3.6, safeCurveSpeed)
-        : Math.min(this.targetSpeed, safeCurveSpeed);
+        ? Math.min(72 / 3.6, previewLimit)
+        : Math.min(this.targetSpeed, previewLimit);
       const current = this.speed * this.direction;
       const error = requested - current;
       this.throttle = clamp(error * 0.18, 0, 1);
@@ -106,17 +156,21 @@ export class TrainSimulation {
     }
 
     const speed = this.speed;
-    const traction = this.direction * 1.65 * this.throttle *
-      clamp(1 - Math.abs(speed) / (125 / 3.6), 0, 1);
-    const rolling = Math.abs(speed) > 0.05 ? 0.12 * Math.sign(speed) : 0;
+    const profile = trainProfiles[this.trainType];
+    const traction = this.direction * profile.acceleration * this.throttle *
+      clamp(1 - Math.abs(speed) / (profile.topSpeed / 3.6), 0, 1);
+    const rolling = Math.abs(speed) > 0.05 ? profile.rolling * Math.sign(speed) : 0;
     const drag = 0.0018 * speed * Math.abs(speed);
     const gradient = 9.81 * Math.sin(this.rail.grade(this.distance));
-    const brakeForce = 3.5 * this.brake * Math.sign(speed || this.direction);
+    const brakeForce = (this.emergency ? 5.6 : 3.5 * this.brake +
+      1.8 * this.independentBrake) * Math.sign(speed || this.direction);
     const acceleration = traction - rolling - drag - gradient - brakeForce;
-    const next = clamp(speed + acceleration * dt, -125 / 3.6, 125 / 3.6);
+    this.acceleration = acceleration;
+    const topSpeed = profile.topSpeed / 3.6;
+    const next = clamp(speed + acceleration * dt, -topSpeed, topSpeed);
 
     // Never let service brakes propel the train backwards through zero.
-    if (this.brake > 0 && (Math.abs(speed) < 0.03 ||
+    if ((this.brake > 0 || this.emergency || this.independentBrake > 0) && (Math.abs(speed) < 0.03 ||
       (speed !== 0 && Math.sign(next) !== Math.sign(speed)))) {
       this.speed = 0;
     } else if (Math.abs(next) < 0.02 && Math.abs(acceleration) < 0.05) {
@@ -125,11 +179,16 @@ export class TrainSimulation {
       this.speed = next;
     }
 
+    if (this.emergency && this.speed === 0) {
+      this.emergency = false;
+      this.brake = 1;
+    }
+
     // Probabilistic but seeded failure model. Curves, excessive speed and
     // aggressive braking raise risk gradually instead of an instant cliff.
     // The base path has broad bends, so use relative curve sharpness, not
     // only raw lateral G, to make the warning meaningful in this toy world.
-    const speedStress = clamp((this.speedKmh - 65) / 60, 0, 1);
+    const speedStress = clamp((this.speedKmh - Math.min(65, this.speedLimitKmh)) / 60, 0, 1);
     const curveStress = clamp(curvature / 0.00036, 0, 1);
     const brakeStress = this.brake > 0.65
       ? 0.16 * clamp((this.speedKmh - 55) / 70, 0, 1) : 0;

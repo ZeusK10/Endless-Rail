@@ -36,6 +36,7 @@
         <div class="hud-details">
           <span id="mode-value">MANUAL</span><span>·</span>
           <span id="direction-value">FORWARD</span><span id="cruise-target" hidden></span>
+          <span>Limit <b id="speed-limit-value">110</b> km/h</span>
         </div>
         <div class="hud-details"><span>Throttle <b id="throttle-value">0%</b></span>
           <span>Brake <b id="brake-value">0%</b></span>
@@ -43,6 +44,7 @@
       </div>
       <button id="recover-button" class="recover" hidden>Train derailed — recover</button>
       <div id="safety-warning" class="driving-notice safety-warning" role="status" hidden></div>
+      <div id="driver-message" class="driving-notice driver-message" role="status" hidden></div>
       <div id="activity-notice" class="driving-notice activity-notice" hidden>
         <span id="activity-notice-label"></span><button id="activity-join-button">Join</button>
       </div>
@@ -71,6 +73,7 @@
             <button id="drawer-freecam-button">Enter free camera</button>
             <button id="drawer-lights-button" aria-pressed="true">Lights: On</button>
             <button id="drawer-activity-button">Do activity</button>
+            <button data-control="locoBrake" aria-label="Hold locomotive brake">Hold loco brake</button>
           </div>
           <div class="journey-summary"><span id="biome-value">Green Highlands</span> · <span id="camera-value">TRAIN VIEW</span></div>
           <div class="journey-summary"><span id="controller-value">Keyboard / touch</span></div>
@@ -88,6 +91,8 @@
           <label class="setting-row"><span>Optional derailment</span>
             <input id="derail-toggle" type="checkbox" /></label>
           <div class="journey-summary">Derailment chance: <b id="risk-value">OFF</b></div>
+          <label class="setting-row"><span>Camera sensitivity</span>
+            <input id="camera-sensitivity" type="range" min="50" max="180" value="100" /></label>
           <label class="setting-row"><span>Graphics quality</span>
             <select id="quality-select">
               <option value="0.7">Low</option>
@@ -102,7 +107,7 @@
         </div>
         <div class="drawer-section">
           <h3>Controls</h3>
-          <p><b>Drive:</b> W/Q throttle · S brake · H horn · R/F direction · C views</p>
+          <p><b>Drive:</b> W/Q throttle · S brake · J locomotive brake · B emergency stop · H horn · R/F direction · C views</p>
           <p><b>Explore:</b> V free camera · WASD move · Space/Shift altitude · E activity · L lights · M cycle mode</p>
           <p><b>Gamepad:</b> RT throttle · LT brake · A horn · B lights · X activity · Y camera · Menu pause</p>
           <p class="small">Settings and progress reset on refresh. No saves.</p>
@@ -113,6 +118,7 @@
     <div id="touch-controls" class="touch-controls" aria-label="Touch train controls" hidden>
       <div class="touch-cluster">
         <button data-control="brake" aria-label="Hold brake">BRAKE</button>
+        <button data-control="emergency" class="emergency-control" aria-label="Emergency stop">STOP!</button>
         <button data-control="throttleDown" aria-label="Reduce throttle">−</button>
         <button data-control="throttle" class="accent" aria-label="Increase throttle">+</button>
       </div>

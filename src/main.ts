@@ -53,6 +53,9 @@ const modeValue = element<HTMLElement>("mode-value");
 const biomeValue = element<HTMLElement>("biome-value");
 const directionValue = element<HTMLElement>("direction-value");
 const cruiseTarget = element<HTMLElement>("cruise-target");
+const speedLimitValue = element<HTMLElement>("speed-limit-value");
+const driverMessage = element<HTMLElement>("driver-message");
+const sensitivityInput = element<HTMLInputElement>("camera-sensitivity");
 const safetyWarning = element<HTMLElement>("safety-warning");
 const activityNotice = element<HTMLElement>("activity-notice");
 const activityNoticeLabel = element<HTMLElement>("activity-notice-label");
@@ -92,6 +95,8 @@ const flyMovement = new THREE.Vector3();
 let lastTime = 0;
 let accumulator = 0;
 let quality = 1;
+let cameraSensitivity = 1;
+let driverMessageUntil = 0;
 let lastControllerName = "";
 const forward = new THREE.Vector3();
 const side = new THREE.Vector3();
@@ -108,6 +113,9 @@ function resize(): void {
   renderer.setSize(width, height);
 }
 window.addEventListener("resize", resize);
+sensitivityInput.addEventListener("input", () => {
+  cameraSensitivity = sensitivityInput.valueAsNumber / 100;
+});
 qualitySelect.addEventListener("change", () => {
   quality = Number(qualitySelect.value) || 1;
   world.setDensity(quality <= 0.7 ? 0.5 : quality >= 1.3 ? 1.2 : 1);
@@ -227,9 +235,9 @@ function setFreeCamera(enabled: boolean): void {
 }
 
 function moveFreeCamera(input: ReturnType<Controls["read"]>, dt: number): void {
-  freeYaw -= input.cameraX * dt * 2 + input.pointerX * 0.004;
+  freeYaw -= (input.cameraX * dt * 2 + input.pointerX * 0.004) * cameraSensitivity;
   freePitch = THREE.MathUtils.clamp(
-    freePitch - input.cameraY * dt * 1.7 - input.pointerY * 0.004, -1.47, 1.47);
+    freePitch - (input.cameraY * dt * 1.7 + input.pointerY * 0.004) * cameraSensitivity, -1.47, 1.47);
   flyDirection.set(-Math.sin(freeYaw), 0, -Math.cos(freeYaw));
   flySide.set(Math.cos(freeYaw), 0, -Math.sin(freeYaw));
   flyMovement.copy(flyDirection).multiplyScalar(input.flyForward)
@@ -265,9 +273,17 @@ function updateCamera(dt: number): void {
   } else if (cameraMode === 2) {
     desiredCamera.copy(target).addScaledVector(forward, 19);
     desiredCamera.y += 8;
-  } else {
+  } else if (cameraMode === 3) {
     desiredCamera.copy(target).addScaledVector(forward, 2.1);
     desiredCamera.y += 4.2;
+  } else if (cameraMode === 4) {
+    desiredCamera.copy(target).addScaledVector(side, 38)
+      .addScaledVector(forward, 15);
+    desiredCamera.y += 5.5;
+  } else {
+    desiredCamera.copy(target).addScaledVector(forward, -34)
+      .addScaledVector(side, Math.sin(simulation.distance / 75) * 24);
+    desiredCamera.y += 16;
   }
   const aim = target.clone().addScaledVector(forward, cameraMode === 3 ? 28 : 7);
   aim.y += cameraMode === 3 ? 3.3 : 2.2;
@@ -286,6 +302,8 @@ function updateInterface(): void {
   modeValue.textContent = simulation.mode.toUpperCase();
   cruiseTarget.hidden = simulation.mode !== "cruise";
   cruiseTarget.textContent = "TARGET " + Math.round(simulation.targetSpeed * 3.6) + " KM/H";
+  speedLimitValue.textContent = String(simulation.speedLimitKmh);
+  speedLimitValue.className = simulation.speedKmh > simulation.speedLimitKmh + 5 ? "risk-high" : "";
   modeButtons.forEach(button => button.setAttribute("aria-pressed",
     String(button.dataset.mode === simulation.mode)));
   biomeValue.textContent = world.biomeName;
@@ -306,6 +324,7 @@ function updateInterface(): void {
     safetyWarning.textContent = "⚠ Derailment risk " + Math.round(chance * 100) +
       "% over 10 seconds — slow down";
   }
+  driverMessage.hidden = performance.now() > driverMessageUntil;
   activityNotice.hidden = !activities.prompt;
   activityNoticeLabel.textContent = activities.prompt;
   activityJoinButton.hidden = !activities.prompt.includes("nearby");
@@ -332,13 +351,24 @@ renderer.setAnimationLoop((time) => {
 
   if (playing && !paused) {
     if (input.mode && !freeCamera && !settingsOpen) simulation.cycleMode();
-    if (input.reverse) simulation.setDirection(-1);
-    if (input.forward) simulation.setDirection(1);
+    if (input.reverse && !simulation.setDirection(-1)) {
+      driverMessage.textContent = "Stop completely before reversing";
+      driverMessageUntil = performance.now() + 2400;
+    }
+    if (input.forward && !simulation.setDirection(1)) {
+      driverMessage.textContent = "Stop completely before changing direction";
+      driverMessageUntil = performance.now() + 2400;
+    }
+    if (input.emergency) {
+      simulation.emergencyStop();
+      driverMessage.textContent = "EMERGENCY BRAKE APPLIED";
+      driverMessageUntil = performance.now() + 2900;
+    }
     if (input.lights) toggleLights();
     if (input.freeCamera) setFreeCamera(!freeCamera);
     if (input.camera) {
       if (freeCamera) setFreeCamera(false);
-      else cameraMode = (cameraMode + 1) % 4;
+      else cameraMode = (cameraMode + 1) % 6;
     }
     if (input.horn) {
       if (simulation.derailed) simulation.recover();
@@ -349,15 +379,17 @@ renderer.setAnimationLoop((time) => {
       moveFreeCamera(input, dt);
       // Keyboard navigation in free-fly mode must never brake the train.
       simulation.applyBrake(0);
+      simulation.setIndependentBrake(0);
     } else {
       if (input.throttleTapUp) simulation.adjustThrottle(0.055);
       if (input.throttleTapDown) simulation.adjustThrottle(-0.055);
       if (input.throttleUp && !input.throttleTapUp) simulation.adjustThrottle(dt * 0.43);
       if (input.throttleDown && !input.throttleTapDown) simulation.adjustThrottle(-dt * 0.43);
       simulation.applyBrake(input.brake);
-      cameraYaw += input.cameraX * dt * 1.5 + input.pointerX * 0.004;
+      simulation.setIndependentBrake(input.locomotiveBrake);
+      cameraYaw += (input.cameraX * dt * 1.5 + input.pointerX * 0.004) * cameraSensitivity;
       cameraPitch = THREE.MathUtils.clamp(
-        cameraPitch + input.cameraY * dt + input.pointerY * 0.004, -0.55, 1.1);
+        cameraPitch + (input.cameraY * dt + input.pointerY * 0.004) * cameraSensitivity, -0.55, 1.1);
     }
 
     accumulator += dt;

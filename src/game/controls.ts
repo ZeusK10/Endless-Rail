@@ -6,6 +6,8 @@ export interface InputFrame {
   throttleTapUp: boolean;
   throttleTapDown: boolean;
   brake: number;
+  locomotiveBrake: number;
+  emergency: boolean;
   mode: boolean;
   reverse: boolean;
   forward: boolean;
@@ -149,6 +151,8 @@ export class Controls {
           this.pendingTaps.has("brake") ? 1 : 0,
         button(6),
       ),
+      locomotiveBrake: down("KeyJ", "locoBrake") ? .75 : 0,
+      emergency: pressed("KeyB", "emergency", 10),
       mode: pressed("KeyM", "mode", 5),
       reverse: pressed("KeyR", "reverse", 14),
       forward: pressed("KeyF", "forward", 15),

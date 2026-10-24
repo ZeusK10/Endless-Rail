@@ -224,3 +224,7 @@ button:active { transform: scale(.97); }
   .driving-notice { top: auto; bottom: 118px; right: 9px; max-width: 240px; font-size: 11px; }
   .activity-notice { top: auto; bottom: 170px; }
 }
+
+.emergency-control { background: #c2574a !important; color: #fff !important; border-color: #a73e36 !important; }
+.driver-message { top: 145px; border-color: #accfcb; background: #edf9f5; color: #32645c; }
+@media (max-width: 800px) { .driver-message { top: auto; bottom: 224px; } }

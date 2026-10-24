@@ -306,6 +306,7 @@ export class TrainView {
   private readonly exhaust: THREE.Group[];
   lights = true;
   private wheelRotation = 0;
+  private derailBlend = 0;
 
   constructor(private readonly scene: THREE.Scene, private readonly rail: RailPath) {
     const loco = locomotive();
@@ -334,15 +335,20 @@ export class TrainView {
     distance: number, speed: number, dt: number,
     origin: THREE.Vector3, throttle = 0, derailed = false,
   ): void {
+    this.derailBlend = THREE.MathUtils.damp(this.derailBlend, derailed ? 1 : 0, 3, Math.max(dt, 0));
     this.groups.forEach((group, i) => {
       const at = distance - i * TRAIN_CAR_SPACING;
       const tangent = this.rail.tangent(at);
       group.position.copy(this.rail.point(at)).sub(origin);
-      group.rotation.y = Math.atan2(-tangent.x, -tangent.z);
+      group.position.addScaledVector(this.rail.side(at), this.derailBlend *
+        (i % 2 === 0 ? 2.4 + i * .65 : -1.8 - i * .5));
+      group.rotation.y = Math.atan2(-tangent.x, -tangent.z) +
+        this.derailBlend * (i % 2 === 0 ? .16 : -.21);
       const curve = this.rail.curvature(at);
       const sway = Math.sin(distance / 4.5 - i * 0.7) *
         Math.min(0.045, Math.abs(speed) * 0.001 + curve * 3);
-      group.rotation.z = sway + (derailed && i === 0 ? 0.14 : 0);
+      group.rotation.z = sway + this.derailBlend *
+        (i % 2 === 0 ? .38 + i * .04 : -.27 - i * .05);
       group.rotation.x = Math.sin(distance / 7 - i) * Math.min(0.015, Math.abs(speed) * 0.0004);
     });
 
