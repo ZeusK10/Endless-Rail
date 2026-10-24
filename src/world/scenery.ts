@@ -8,6 +8,7 @@ export interface SceneryChunk {
   group: THREE.Group;
   center: THREE.Vector3;
   instances: THREE.InstancedMesh[];
+  geometries?: THREE.BufferGeometry[];
 }
 
 interface Context {
@@ -46,6 +47,10 @@ const windows = lambert("#718f91");
 const doors = lambert("#5f5149");
 const stones = lambert("#a4a599");
 const paths = lambert("#c6b593");
+const mudRoadMaterial = new THREE.MeshLambertMaterial({
+  color: "#aa8660", vertexColors: true, flatShading: true,
+  side: THREE.DoubleSide,
+});
 const fence = lambert("#b2a084");
 
 const reusableBox = new THREE.BoxGeometry(1, 1, 1);
@@ -531,17 +536,37 @@ export function populateVillage(ctx: Context, index: number, mid: number): void 
 
   // A connected, curved rural road follows the settlement through all three
   // chunks. Paths and yards connect each home to this shared artery.
-  for (let roadS = mid - CHUNK_LENGTH / 2 + 5; roadS < mid + CHUNK_LENGTH / 2; roadS += 13) {
-    const where = roadOffset(roadS);
-    if (isWater(ctx, roadS, where)) continue;
-    const pos = basePoint(ctx, roadS, where);
-    const road = new THREE.Mesh(reusableBox, paths);
-    road.position.copy(pos);
-    road.position.y += .1;
-    road.scale.set(6.7, .18, 13.9);
-    road.rotation.y = Math.atan2(-ctx.rail.tangent(roadS).x,
-      -ctx.rail.tangent(roadS).z);
+  const roadVertices: number[] = [], roadColors: number[] = [], roadIndices: number[] = [];
+  const roadStart = mid - CHUNK_LENGTH / 2, roadEnd = mid + CHUNK_LENGTH / 2;
+  for (let roadS = roadStart; roadS < roadEnd; roadS += 4) {
+    const nextS = Math.min(roadEnd, roadS + 4);
+    if (isWater(ctx, roadS, roadOffset(roadS)) ||
+        isWater(ctx, nextS, roadOffset(nextS))) continue;
+    const base = roadVertices.length / 3;
+    for (const s of [roadS, nextS]) {
+      for (const edge of [-3.35, 3.35]) {
+        const offset = roadOffset(s) + edge;
+        const pos = basePoint(ctx, s, offset);
+        pos.y += .095;
+        roadVertices.push(pos.x - ctx.chunk.center.x,
+          pos.y - ctx.chunk.center.y, pos.z - ctx.chunk.center.z);
+        const tint = .86 + hash(seed, Math.floor(s / 4), edge > 0 ? 31 : 32) * .21;
+        roadColors.push(tint, tint * .96, tint * .88);
+      }
+    }
+    roadIndices.push(base, base + 2, base + 1,
+      base + 1, base + 2, base + 3);
+  }
+  if (roadVertices.length) {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(roadVertices, 3));
+    geometry.setAttribute("color", new THREE.Float32BufferAttribute(roadColors, 3));
+    geometry.setIndex(roadIndices);
+    geometry.computeVertexNormals();
+    const road = new THREE.Mesh(geometry, mudRoadMaterial);
+    road.name = "terrain-following-mud-road";
     ctx.chunk.group.add(road);
+    ctx.chunk.geometries?.push(geometry);
   }
 
   for (let i = 0; i < numberOfBuildings; i++) {

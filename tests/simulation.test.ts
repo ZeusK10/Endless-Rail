@@ -102,6 +102,11 @@ test("settlements span multiple chunks with architectural detail", () => {
     return chunk.group;
   };
   const groups = [6, 7, 8].map(index => createVillage(index));
+  for (const group of groups) {
+    const road = group.getObjectByName("terrain-following-mud-road") as THREE.Mesh;
+    assert.ok(road, "each settlement chunk needs a continuous ground-hugging road");
+    assert.ok(road.geometry.getAttribute("position").count > 60);
+  }
   assert.equal(villageRegion(rail.seed, 5), null);
   assert.ok(villageRegion(rail.seed, 6) && villageRegion(rail.seed, 8));
   const counts = groups.map(group => group.children.filter(item => item instanceof THREE.Group).length);
