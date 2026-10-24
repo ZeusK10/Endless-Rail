@@ -52,6 +52,11 @@ const distanceValue = element<HTMLElement>("distance-value");
 const modeValue = element<HTMLElement>("mode-value");
 const biomeValue = element<HTMLElement>("biome-value");
 const directionValue = element<HTMLElement>("direction-value");
+const cruiseTarget = element<HTMLElement>("cruise-target");
+const safetyWarning = element<HTMLElement>("safety-warning");
+const activityNotice = element<HTMLElement>("activity-notice");
+const activityNoticeLabel = element<HTMLElement>("activity-notice-label");
+const activityJoinButton = element<HTMLButtonElement>("activity-join-button");
 const controllerValue = element<HTMLElement>("controller-value");
 const activityValue = element<HTMLElement>("activity-value");
 const achievementValue = element<HTMLElement>("achievement-value");
@@ -134,6 +139,16 @@ function toggleLights(): void {
 }
 lightsButton.addEventListener("click", toggleLights);
 activityButton.addEventListener("click", () => activities.activate(simulation.distance));
+activityJoinButton.addEventListener("click", () => activities.activate(simulation.distance));
+const volumeNames = ["master", "engine", "rails", "horn", "effects"] as const;
+function updateAudioMix(): void {
+  const mix = Object.fromEntries(volumeNames.map(name => [name,
+    element<HTMLInputElement>("volume-" + name).valueAsNumber / 100]));
+  audio.setMix(mix);
+}
+volumeNames.forEach(name => element<HTMLInputElement>("volume-" + name)
+  .addEventListener("input", updateAudioMix));
+updateAudioMix();
 freeCamButton.addEventListener("click", () => {
   setFreeCamera(!freeCamera);
   setSettings(false);
@@ -269,6 +284,8 @@ function updateInterface(): void {
   speedValue.textContent = String(Math.round(simulation.speedKmh));
   distanceValue.textContent = (simulation.traveled / 1000).toFixed(1);
   modeValue.textContent = simulation.mode.toUpperCase();
+  cruiseTarget.hidden = simulation.mode !== "cruise";
+  cruiseTarget.textContent = "TARGET " + Math.round(simulation.targetSpeed * 3.6) + " KM/H";
   modeButtons.forEach(button => button.setAttribute("aria-pressed",
     String(button.dataset.mode === simulation.mode)));
   biomeValue.textContent = world.biomeName;
@@ -283,6 +300,15 @@ function updateInterface(): void {
     ? "risk-high" : simulation.derailmentRisk > 0.35 ? "risk-medium" : "";
   activityValue.textContent = activities.prompt || activities.message ||
     "Follow the horizon. Optional activities appear along the tracks.";
+  const chance = simulation.derailmentChance10s;
+  safetyWarning.hidden = !simulation.derailmentEnabled || simulation.derailed || chance < 0.08;
+  if (!safetyWarning.hidden) {
+    safetyWarning.textContent = "⚠ Derailment risk " + Math.round(chance * 100) +
+      "% over 10 seconds — slow down";
+  }
+  activityNotice.hidden = !activities.prompt;
+  activityNoticeLabel.textContent = activities.prompt;
+  activityJoinButton.hidden = !activities.prompt.includes("nearby");
   achievementValue.textContent = String(activities.completed);
   recoverButton.hidden = !simulation.derailed;
   if (controls.gamepadName !== lastControllerName) {
@@ -305,7 +331,7 @@ renderer.setAnimationLoop((time) => {
   }
 
   if (playing && !paused) {
-    if (input.mode) simulation.cycleMode();
+    if (input.mode && !freeCamera && !settingsOpen) simulation.cycleMode();
     if (input.reverse) simulation.setDirection(-1);
     if (input.forward) simulation.setDirection(1);
     if (input.lights) toggleLights();

@@ -35,13 +35,17 @@
         <div class="speed"><strong id="speed-value">0</strong><span>KM/H</span></div>
         <div class="hud-details">
           <span id="mode-value">MANUAL</span><span>·</span>
-          <span id="direction-value">FORWARD</span>
+          <span id="direction-value">FORWARD</span><span id="cruise-target" hidden></span>
         </div>
         <div class="hud-details"><span>Throttle <b id="throttle-value">0%</b></span>
           <span>Brake <b id="brake-value">0%</b></span>
           <span>Distance <b id="distance-value">0.0</b> km</span></div>
       </div>
       <button id="recover-button" class="recover" hidden>Train derailed — recover</button>
+      <div id="safety-warning" class="driving-notice safety-warning" role="status" hidden></div>
+      <div id="activity-notice" class="driving-notice activity-notice" hidden>
+        <span id="activity-notice-label"></span><button id="activity-join-button">Join</button>
+      </div>
       <div id="control-hint" class="control-hint">W throttle · Q reduce · S brake · H horn · R/F direction · C views · ⚙ Settings · Esc pause</div>
     </section>
 
@@ -73,6 +77,14 @@
         </div>
         <div class="drawer-section">
           <h3>Game preferences</h3>
+          <div class="audio-mixer" aria-label="Sound volumes">
+            <h4>Sound volumes</h4>
+            <label>Master <input id="volume-master" type="range" min="0" max="100" value="100" /></label>
+            <label>Engine <input id="volume-engine" type="range" min="0" max="100" value="100" /></label>
+            <label>Wheels <input id="volume-rails" type="range" min="0" max="100" value="100" /></label>
+            <label>Horn <input id="volume-horn" type="range" min="0" max="100" value="100" /></label>
+            <label>Effects <input id="volume-effects" type="range" min="0" max="100" value="100" /></label>
+          </div>
           <label class="setting-row"><span>Optional derailment</span>
             <input id="derail-toggle" type="checkbox" /></label>
           <div class="journey-summary">Derailment chance: <b id="risk-value">OFF</b></div>
