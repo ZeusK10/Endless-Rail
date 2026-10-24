@@ -24,11 +24,12 @@
     </section>
 
     <section id="game-hud" class="game-hud" aria-label="Train status" hidden>
-      <div class="hud-main">
+      <div id="hud-main" class="hud-main">
         <div class="hud-title">
           <span class="eyebrow">ENDLESS RAIL</span>
           <div class="hud-actions">
-            <button id="settings-button" class="hud-pause" aria-label="Open settings" aria-expanded="false" aria-controls="settings-drawer">⚙ Settings</button>
+            <button id="hud-collapse" class="hud-pause" aria-label="Collapse driving HUD" title="Hide HUD">⌃</button>
+            <button id="settings-button" class="hud-pause" aria-label="Open settings" aria-expanded="false" aria-controls="settings-drawer">⚙</button>
             <button class="hud-pause" data-control="pause" aria-label="Pause game">Ⅱ</button>
           </div>
         </div>
@@ -41,6 +42,13 @@
         <div class="hud-details"><span>Throttle <b id="throttle-value">0%</b></span>
           <span>Brake <b id="brake-value">0%</b></span>
           <span>Distance <b id="distance-value">0.0</b> km</span></div>
+      </div>
+      <div id="hud-collapsed" class="hud-collapsed" hidden>
+        <div class="hud-compact-speed"><b id="compact-speed">0</b> KM/H</div>
+        <div class="hud-compact-actions">
+          <button id="hud-expand" aria-label="Expand driving HUD" title="Show HUD">⌄</button>
+          <button id="compact-settings" aria-label="Open settings" title="Settings">⚙</button>
+        </div>
       </div>
       <button id="recover-button" class="recover" hidden>Train derailed — recover</button>
       <div id="safety-warning" class="driving-notice safety-warning" role="status" hidden></div>
@@ -139,6 +147,7 @@
       </div>
     </aside>
 
+    <button id="bottom-controls-toggle" class="bottom-controls-toggle" aria-label="Hide driving controls" aria-expanded="true" hidden>⌄</button>
     <div id="touch-controls" class="touch-controls" aria-label="Touch train controls" hidden>
       <div class="touch-cluster">
         <button data-control="brake" aria-label="Hold brake">BRAKE</button>

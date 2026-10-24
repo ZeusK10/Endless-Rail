@@ -52,3 +52,26 @@ test("free camera and keyboard horn remain available", async ({ page }) => {
   await expect(page.locator("#free-controls")).toHaveAttribute("hidden", "");
   expect(errors).toEqual([]);
 });
+
+test("top and bottom gameplay panels collapse independently without losing settings", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.goto("/");
+  await page.locator("#play-button").click();
+  await page.locator("#hud-collapse").click();
+  await expect(page.locator("#hud-main")).toHaveAttribute("hidden", "");
+  await expect(page.locator("#hud-collapsed")).not.toHaveAttribute("hidden", "");
+  await expect(page.locator("#compact-settings")).toHaveText("⚙");
+  await page.locator("#compact-settings").click();
+  await expect(page.locator("#settings-drawer")).toHaveClass(/is-open/);
+  await page.locator("#settings-close").click();
+  await page.locator("#hud-expand").click();
+  await expect(page.locator("#hud-main")).not.toHaveAttribute("hidden", "");
+  await page.locator("#bottom-controls-toggle").evaluate((button: HTMLButtonElement) => button.click());
+  await expect(page.locator("#bottom-controls-toggle")).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator("#touch-controls")).toHaveAttribute("hidden", "");
+  await page.locator("#bottom-controls-toggle").evaluate((button: HTMLButtonElement) => button.click());
+  await expect(page.locator("#bottom-controls-toggle")).toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator("#touch-controls")).not.toHaveAttribute("hidden", "");
+  expect(errors).toEqual([]);
+});

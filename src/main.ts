@@ -88,6 +88,13 @@ const freeControls = element<HTMLElement>("free-controls");
 const cameraValue = element<HTMLElement>("camera-value");
 const controlHint = element<HTMLElement>("control-hint");
 const settingsButton = element<HTMLButtonElement>("settings-button");
+const compactSettingsButton = element<HTMLButtonElement>("compact-settings");
+const hudMain = element<HTMLElement>("hud-main");
+const hudCollapsed = element<HTMLElement>("hud-collapsed");
+const hudCollapseButton = element<HTMLButtonElement>("hud-collapse");
+const hudExpandButton = element<HTMLButtonElement>("hud-expand");
+const compactSpeed = element<HTMLElement>("compact-speed");
+const bottomControlsToggle = element<HTMLButtonElement>("bottom-controls-toggle");
 const settingsClose = element<HTMLButtonElement>("settings-close");
 const settingsScrim = element<HTMLButtonElement>("settings-scrim");
 const settingsDrawer = element<HTMLElement>("settings-drawer");
@@ -99,6 +106,9 @@ const modeButtons = Array.from(document.querySelectorAll<HTMLButtonElement>("[da
 let playing = false;
 let paused = false;
 let settingsOpen = false;
+let topCollapsed = false;
+let bottomCollapsed = false;
+let lastSettingsTrigger: HTMLButtonElement = settingsButton;
 let cameraMode = 0;
 let cameraYaw = 0;
 let cameraPitch = 0;
@@ -154,18 +164,54 @@ adaptiveQualityToggle.addEventListener("change", () => {
 });
 resize();
 
+function syncDrivingPanels(): void {
+  hudMain.hidden = topCollapsed;
+  hudCollapsed.hidden = !topCollapsed;
+  bottomControlsToggle.hidden = !playing || paused;
+  bottomControlsToggle.classList.toggle("is-collapsed", bottomCollapsed);
+  bottomControlsToggle.textContent = bottomCollapsed ? "⌃" : "⌄";
+  bottomControlsToggle.setAttribute("aria-label",
+    bottomCollapsed ? "Show driving controls" : "Hide driving controls");
+  bottomControlsToggle.setAttribute("aria-expanded", String(!bottomCollapsed));
+  touchControls.hidden = !playing || paused || freeCamera || bottomCollapsed;
+  freeControls.hidden = !playing || paused || !freeCamera || bottomCollapsed;
+}
+
+hudCollapseButton.addEventListener("click", () => {
+  topCollapsed = true;
+  syncDrivingPanels();
+  hudExpandButton.focus();
+});
+hudExpandButton.addEventListener("click", () => {
+  topCollapsed = false;
+  syncDrivingPanels();
+  hudCollapseButton.focus();
+});
+bottomControlsToggle.addEventListener("click", () => {
+  bottomCollapsed = !bottomCollapsed;
+  syncDrivingPanels();
+});
+
 function setSettings(open: boolean): void {
   settingsOpen = open && playing && !paused;
   settingsDrawer.classList.toggle("is-open", settingsOpen);
   settingsDrawer.inert = !settingsOpen;
   settingsDrawer.setAttribute("aria-hidden", String(!settingsOpen));
   settingsButton.setAttribute("aria-expanded", String(settingsOpen));
+  compactSettingsButton.setAttribute("aria-expanded", String(settingsOpen));
   settingsScrim.hidden = !settingsOpen;
   if (settingsOpen) settingsClose.focus();
-  else if (settingsDrawer.contains(document.activeElement)) settingsButton.focus();
+  else if (settingsDrawer.contains(document.activeElement)) lastSettingsTrigger.focus();
 }
 
-settingsButton.addEventListener("click", () => setSettings(!settingsOpen));
+settingsButton.addEventListener("click", () => {
+  lastSettingsTrigger = settingsButton;
+  setSettings(!settingsOpen);
+});
+compactSettingsButton.addEventListener("click", () => {
+  lastSettingsTrigger = compactSettingsButton;
+  setSettings(!settingsOpen);
+});
 settingsClose.addEventListener("click", () => setSettings(false));
 settingsScrim.addEventListener("click", () => setSettings(false));
 trainTypeSelect.addEventListener("change", () => {
@@ -233,9 +279,8 @@ function start(): void {
   setSettings(false);
   startScreen.hidden = true;
   hud.hidden = false;
-  touchControls.hidden = false;
-  freeControls.hidden = true;
   pauseScreen.hidden = true;
+  syncDrivingPanels();
   audio.start();
   lastTime = 0;
 }
@@ -245,8 +290,7 @@ function setPause(value: boolean): void {
   paused = value;
   if (paused) setSettings(false);
   pauseScreen.hidden = !paused;
-  touchControls.hidden = paused || freeCamera;
-  freeControls.hidden = paused || !freeCamera;
+  syncDrivingPanels();
   if (!paused) audio.start();
 }
 
@@ -274,8 +318,7 @@ function setFreeCamera(enabled: boolean): void {
     freeYaw = Math.atan2(-gaze.x, -gaze.z);
     freePitch = Math.asin(THREE.MathUtils.clamp(gaze.y, -1, 1));
   }
-  touchControls.hidden = paused || enabled;
-  freeControls.hidden = paused || !enabled;
+  syncDrivingPanels();
   cameraValue.textContent = enabled ? "FREE FLY" : "TRAIN VIEW";
   freeCamButton.textContent = enabled ? "Return to train view" : "Enter free camera";
   controlHint.textContent = enabled
@@ -347,6 +390,7 @@ function updateCamera(dt: number): void {
 
 function updateInterface(): void {
   speedValue.textContent = String(Math.round(simulation.speedKmh));
+  compactSpeed.textContent = String(Math.round(simulation.speedKmh));
   distanceValue.textContent = (simulation.traveled / 1000).toFixed(1);
   modeValue.textContent = simulation.mode.toUpperCase();
   cruiseTarget.hidden = simulation.mode !== "cruise";
