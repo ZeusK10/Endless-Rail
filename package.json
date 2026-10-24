@@ -8,7 +8,8 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "node tests/run-tests.mjs"
+    "test": "node tests/run-tests.mjs",
+    "test:browser": "playwright test"
   },
   "engines": {
     "node": ">=20.19.0"
@@ -20,6 +21,7 @@
     "@types/three": "^0.180.0",
     "typescript": "^5.9.0",
     "vite": "^7.0.0",
-    "esbuild": "^0.25.0"
+    "esbuild": "^0.25.0",
+    "@playwright/test": "^1.56.0"
   }
 }

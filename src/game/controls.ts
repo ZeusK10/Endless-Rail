@@ -42,7 +42,9 @@ export class Controls {
 
   constructor(canvas: HTMLCanvasElement) {
     window.addEventListener("keydown", (event) => {
-      if ((event.target as HTMLElement | null)?.closest("input, select, textarea, button, [contenteditable]")) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, select, textarea, [contenteditable]") && event.code !== "Escape") return;
+      if (target?.closest("button") && ["Space", "Enter"].includes(event.code)) return;
       if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(event.code)) {
         event.preventDefault();
       }
