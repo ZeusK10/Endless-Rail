@@ -306,9 +306,11 @@ export class WorldStream {
             Math.pow(Math.abs((col + .5) / columns * 2 - 1), 1.35) * 190;
           const centerS = start + (row + .5) / rows * (end - start);
           // A real cutout, not bright green ground inside the tunnel bore.
+          // The overburden is the only mountain surface over the bore. Mask
+          // this entire patch from the lower near terrain to prevent z-fighting.
           if (this.rail.featureAt(centerS) !== "tunnel" ||
               this.rail.featureStrength(centerS) < .13 ||
-              Math.abs(centerOffset) > 4.55) {
+              Math.abs(centerOffset) > 59) {
             indices.push(a, b, a + 1, a + 1, b, b + 1);
           }
         }
@@ -767,31 +769,40 @@ export class WorldStream {
    * joins both banks so the arch is no longer an exposed floating tube.
    */
   private createTunnelOverburden(chunk: Chunk, start: number, end: number): void {
-    const offsets = [-53, -32, -20, -11, 0, 11, 20, 32, 53];
+    // A single solid mountain cap covers the excavated bore. The matching
+    // near-ground triangles are absent beneath it, so two almost identical
+    // surfaces can never compete in the depth buffer.
+    const offsets = [-78, -63, -50, -35, -23, -13, -8, 0, 8, 13, 23, 35, 50, 63, 78];
     const vertices: number[] = [], colors: number[] = [], indices: number[] = [];
-    const steps = 40;
+    const steps = 56;
     for (let i = 0; i < steps; i++) {
       const s0 = start + (end - start) * i / steps;
       const s1 = start + (end - start) * (i + 1) / steps;
       const mid = (s0 + s1) / 2;
       if (this.rail.featureAt(mid) !== "tunnel" ||
-        this.rail.featureStrength(mid) < .13) continue;
+          this.rail.featureStrength(mid) < .13) continue;
       const base = vertices.length / 3;
       for (const s of [s0, s1]) {
-        const strength = this.rail.featureStrength(s);
-        const coverage = strength >= .13 ? 1 : THREE.MathUtils.smoothstep(strength, .07, .13);
+        const mass = this.landscape.tunnelMountainStrength(s);
         for (const offset of offsets) {
           const away = Math.abs(offset);
-          const shoulder = 1 - THREE.MathUtils.smoothstep(away, 7, 53);
+          const shoulder = 1 - THREE.MathUtils.smoothstep(away, 8, 65);
           const naturalY = this.landscape.height(s, offset);
-          const ridgeY = this.rail.point(s).y + 14.5 + 2.3 * Math.sin(s / 82);
-          const coverY = naturalY + Math.max(0, ridgeY - naturalY) *
-            coverage * shoulder;
+          const ridgeY = this.rail.point(s).y + 16.8 * mass +
+            2.8 * Math.sin(s / 98) + 1.4 * Math.sin(s / 37 + offset * .08);
+          // Lift at least 26 cm clear of coincident underlying terrain.
+          const coverY = naturalY + .26 +
+            Math.max(0, ridgeY - naturalY) * shoulder;
           const p = this.local(chunk, s, offset);
           p.y = coverY - chunk.center.y;
           vertices.push(p.x, p.y, p.z);
-          const tint = new THREE.Color(away < 14 ? "#98988c" : "#7f9875");
-          tint.multiplyScalar(.91 + .08 * Math.sin(s * .07 + offset * .18));
+          const altitude = coverY - this.rail.point(s).y;
+          const rockiness = THREE.MathUtils.clamp((altitude - 9) / 24, 0, 1);
+          const tint = new THREE.Color("#819779").lerp(
+            new THREE.Color("#777c80"), rockiness);
+          if (altitude > 43) tint.lerp(new THREE.Color("#e3e8e3"),
+            THREE.MathUtils.smoothstep(altitude, 43, 76) * .38);
+          tint.multiplyScalar(.91 + .07 * Math.sin(s * .09 + offset * .16));
           colors.push(tint.r, tint.g, tint.b);
         }
       }
@@ -876,68 +887,167 @@ export class WorldStream {
       const railY = this.rail.point(s).y - chunk.center.y;
       station.position.set(platformCenter.x, railY, platformCenter.z);
       station.rotation.y = Math.atan2(-this.rail.tangent(s).x, -this.rail.tangent(s).z);
-      const rural = index % 3 === 0, modern = index % 3 === 1;
-      // One continuous platform foundation follows the track. The roof,
-      // information board, benches, lamps and commuters vary by station.
-      const slab = new THREE.Mesh(sharedBeam, stationEdge);
-      slab.scale.set(rural ? 4.3 : 5.8, .44, rural ? 72 : 98);
-      slab.position.set(0, .24, 0);
-      station.add(slab);
-      const stripe = new THREE.Mesh(sharedBeam, crossingWarning);
-      stripe.scale.set(.16, .025, rural ? 71 : 97);
-      stripe.position.set(-side * 2.0, .48, 0);
-      station.add(stripe);
-      const building = new THREE.Mesh(sharedBeam, stationWall);
-      building.scale.set(modern ? 7 : 5.9, modern ? 5.7 : 4.2, rural ? 12 : 17);
-      building.position.set(side * 7.1, (modern ? 5.7 : 4.2) / 2, -10);
-      station.add(building);
-      const roof = new THREE.Mesh(sharedBeam, stationRoof);
-      roof.scale.set(modern ? 8.1 : 7.5, .31, rural ? 13 : 18);
-      roof.position.set(side * 7.1, modern ? 5.9 : 4.4, -10);
-      station.add(roof);
-      if (!modern) {
-        const ridge = new THREE.Mesh(new THREE.ConeGeometry(5.4, 2.4, 4), stationRoof);
-        ridge.rotation.y = Math.PI / 4;
-        ridge.scale.z = 1.7;
-        ridge.position.set(side * 7.1, 5.6, -10);
-        station.add(ridge);
-        chunk.geometries.push(ridge.geometry);
-      } else {
-        const glass = new THREE.Mesh(sharedBeam, stationGlass);
-        glass.scale.set(4.5, 2.6, .11);
-        glass.position.set(side * 7.1, 3.5, -18.55);
-        station.add(glass);
+      const style = Math.abs(index) % 3;
+      const rural = style === 0, modern = style === 1;
+      const platformLength = rural ? 78 : 106;
+      const width = rural ? 6.8 : modern ? 9 : 8.4;
+      const depth = rural ? 14 : 19;
+      const wallHeight = rural ? 4.5 : modern ? 6.0 : 5.25;
+      const buildingX = side * 8.15;
+      const facadeX = buildingX - side * (width / 2 + .09);
+
+      const block = (x: number, y: number, z: number,
+        sx: number, sy: number, sz: number, material: THREE.Material): THREE.Mesh => {
+        const mesh = new THREE.Mesh(sharedBeam, material);
+        mesh.position.set(x, y, z);
+        mesh.scale.set(sx, sy, sz);
+        station.add(mesh);
+        return mesh;
+      };
+      // Long, continuous passenger platform with painted warning line.
+      block(0, .24, 0, rural ? 4.8 : 6.05, .48,
+        platformLength, stationEdge);
+      block(-side * 2.15, .495, 0, .17, .025,
+        platformLength - 1.2, crossingWarning);
+      for (const z of [-platformLength / 2 + 4, platformLength / 2 - 4]) {
+        block(0, .35, z, rural ? 4.7 : 6, .3, .35, stationWood);
       }
-      for (const z of [-25, 12, 27]) {
-        const bench = new THREE.Mesh(sharedBeam, stationWood);
-        bench.scale.set(2.5, .22, .75);
-        bench.position.set(side * .4, .95, z);
-        station.add(bench);
-        for (const x of [-.8, .8]) {
-          const leg = new THREE.Mesh(sharedBeam, darkCloth);
-          leg.scale.set(.13, .7, .13);
-          leg.position.set(side * .4 + x, .63, z);
-          station.add(leg);
+
+      // A legible facade faces the rail. Doors and glazing are laid on the
+      // *x face* of the hall, not at the far z end where nobody can see them.
+      block(buildingX, wallHeight / 2 + .47, -11,
+        width, wallHeight, depth, stationWall);
+      block(buildingX, .27, -11, width + .9, .55, depth + .85, bridgeStone);
+      block(facadeX - side * .04, 1.92, -11,
+        .20, 3.0, 2.1, darkCloth).name = "station-door";
+      block(facadeX - side * .2, 1.91, -11,
+        .1, 2.74, 1.88, stationWood);
+      block(facadeX - side * .33, 1.94, -10.3,
+        .1, .12, .12, stationEdge);
+      // Framed windows read clearly even when the exterior is unlit.
+      for (const z of [-17.6, -4.6]) {
+        block(facadeX - side * .04, 2.75, z,
+          .20, 2.22, 2.85, stationWood);
+        block(facadeX - side * .19, 2.75, z,
+          .13, 1.95, 2.58, stationGlass).name = "station-window";
+        block(facadeX - side * .28, 2.75, z,
+          .12, 2.03, .11, stationEdge);
+        block(facadeX - side * .29, 2.75, z,
+          .12, .11, 2.65, stationEdge);
+        block(facadeX - side * .09, 1.59, z,
+          .36, .17, 3.2, bridgeStone);
+      }
+      if (modern) {
+        // Flat steel-and-glass station with a broad upper light ribbon,
+        // contrasting metal paneling and a sheltered ticket counter.
+        block(buildingX, wallHeight + .60, -11,
+          width + 1.2, .35, depth + 1.6, stationRoof);
+        for (const z of [-19, -16.3, -13.6, -10.9, -8.2, -5.5, -3]) {
+          block(facadeX - side * .12, 5.25, z,
+            .14, .86, 2.26, stationGlass).name = "station-window";
+          block(facadeX - side * .23, 5.25, z + 1.12,
+            .11, .94, .10, stationWood);
+        }
+        for (const z of [-15.5, -6.5])
+          block(facadeX - side * .21, 4.23, z, .10, .20, 2.7, stationRoof);
+      } else {
+        // Ridge-and-eave roof: timber country halt or older stone depot.
+        const rise = rural ? 2.3 : 2.9;
+        const half = Math.hypot(width / 2 + .75, rise) + .4;
+        const tilt = Math.atan2(rise, width / 2 + .75);
+        for (const flank of [-1, 1]) {
+          const roof = block(buildingX + flank * width / 4,
+            wallHeight + .46 + rise / 2, -11,
+            half, .29, depth + 1.6, stationRoof);
+          roof.rotation.z = -flank * tilt;
+          for (const z of [-16, -12, -8, -4])
+            block(buildingX + flank * width / 4,
+              wallHeight + .47 + rise / 2 + .2, z,
+              half, .035, .12, stationWood).rotation.z = -flank * tilt;
+        }
+        block(buildingX, wallHeight + .5 + rise, -11,
+          .23, .23, depth + 1.7, stationWood);
+        const gableShape = new THREE.Shape();
+        gableShape.moveTo(-width / 2, wallHeight + .47);
+        gableShape.lineTo(0, wallHeight + .47 + rise);
+        gableShape.lineTo(width / 2, wallHeight + .47);
+        gableShape.closePath();
+        for (const z of [-11 - depth / 2 - .05, -11 + depth / 2 - .05]) {
+          const geometry = new THREE.ExtrudeGeometry(gableShape,
+            { depth: .10, bevelEnabled: false, steps: 1 });
+          const gable = new THREE.Mesh(geometry, stationWall);
+          gable.position.set(buildingX, 0, z);
+          station.add(gable);
+          chunk.geometries.push(geometry);
+        }
+        if (!rural) {
+          // Heritage facade with decorative pilasters and a chimney.
+          for (const z of [-20, -13.5, -7, -2])
+            block(facadeX - side * .2, 3.0, z, .34, 5, .35, bridgeStone);
+          block(buildingX + side * (width / 3), wallHeight + 2.5,
+            -9, 1.2, 3.0, 1.0, bridgeStone);
         }
       }
-      for (const z of [-32, 0, 33]) {
-        const post = new THREE.Mesh(sharedBeam, stationRoof);
-        post.scale.set(.18, 4.7, .18);
-        post.position.set(side * 1.9, 2.75, z);
-        station.add(post);
-        const lantern = new THREE.Mesh(new THREE.SphereGeometry(.42, 7, 6), tunnelLamp);
-        lantern.position.set(side * 1.9, 5.04, z);
-        station.add(lantern);
-        chunk.geometries.push(lantern.geometry);
+
+      // Roofed waiting area. Posts line up with its canopy instead of
+      // intersecting the hall; benches, timetable and luggage populate it.
+      const canopyX = side * 1.0;
+      const canopyY = modern ? 4.25 : 3.8;
+      block(canopyX, canopyY, 14, 5.3, .24, 25, stationRoof).name = "station-canopy";
+      for (const z of [3.5, 24.5]) {
+        for (const x of [-1.05, 2.95]) {
+          block(side * x, canopyY / 2 + .4, z,
+            .22, canopyY - .8, .22, stationWood);
+        }
       }
-      const board = new THREE.Sprite(stationSignMaterial(Math.abs(index)));
-      board.position.set(side * 5.3, 4.2, 4);
-      board.scale.set(8.3, 2.1, 1);
-      station.add(board);
-      for (let i = 0; i < (rural ? 7 : 13); i++) {
-        const z = -38 + ((i * 47 + index * 19) % 79);
-        const x = side * (.2 + (i % 4) * .65);
-        this.person(station, x, .48, z, i + index * 2, i % 5 === 0);
+      for (const z of [-30, 4, 19, 33]) {
+        block(side * .7, .98, z, 2.85, .22, .78, stationWood);
+        block(side * .7, 1.47, z + .36, 2.85, .72, .16, stationWood);
+        for (const x of [-1.0, 1.0])
+          block(side * .7 + x, .67, z, .12, .73, .13, darkCloth);
+      }
+      const sign = new THREE.Sprite(stationSignMaterial(Math.abs(index)));
+      sign.position.set(facadeX - side * .5, wallHeight + 1.5, -11);
+      sign.scale.set(8.1, 1.9, 1);
+      station.add(sign);
+
+      const clockGeometry = new THREE.CylinderGeometry(.82, .82, .14, 16);
+      const clock = new THREE.Mesh(clockGeometry, stationEdge);
+      clock.rotation.z = Math.PI / 2;
+      clock.position.set(facadeX - side * .37, wallHeight - .2, -11);
+      station.add(clock);
+      clock.name = "station-clock";
+      chunk.geometries.push(clockGeometry);
+      block(facadeX - side * .49, wallHeight -.16, -11,
+        .06, .55, .065, darkCloth);
+      block(facadeX - side * .50, wallHeight -.04, -10.80,
+        .06, .065, .43, darkCloth);
+
+      // Platform lamps, timetable boards, litter bins and low planters.
+      for (const z of [-34, 0, 35]) {
+        block(-side * 1.8, 2.65, z, .15, 4.5, .17, stationRoof);
+        const lanternGeometry = new THREE.SphereGeometry(.41, 8, 6);
+        const lantern = new THREE.Mesh(lanternGeometry, tunnelLamp);
+        lantern.position.set(-side * 1.8, 5.0, z);
+        station.add(lantern);
+        chunk.geometries.push(lanternGeometry);
+      }
+      for (const z of [-27, 27]) {
+        block(side * 1.2, .72, z, 2.2, .75, .9, stationWood);
+        for (const x of [-.75, .75])
+          block(side * 1.2 + x, 1.23, z, .7, .42, .7, stationGlass);
+      }
+      block(facadeX - side * .55, 2.2, 3,
+        .14, 2.1, 1.4, stationRoof);
+      for (let i = 0; i < 5; i++)
+        block(side * (2.5 + i % 2 * .8), .74,
+          8 + i * 1.3, .74, .7, .83, stationWood);
+      for (let i = 0; i < (rural ? 9 : 17); i++) {
+        const jitter = Math.floor((Math.sin(i * 57.2 + index * 2) + 1) * 19);
+        const z = -platformLength / 2 + 6 +
+          ((i * 31 + jitter) % Math.round(platformLength - 11));
+        const x = side * (.2 + (i % 4) * .6);
+        this.person(station, x, .50, z, i + index * 2, i % 6 === 0);
       }
       station.name = "populated-scenic-station";
       chunk.group.add(station);

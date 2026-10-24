@@ -413,6 +413,10 @@ test("scenic stops, lake life, and ground-following lanes survive streaming", ()
   const station = scene.getObjectByName("populated-scenic-station");
   assert.ok(station, "the open starting section should contain a populated scenic station");
   assert.ok(station.children.length > 20);
+  assert.ok(station.getObjectByName("station-door"), "station needs a visible rail-facing entrance");
+  assert.ok(station.getObjectByName("station-window"), "station needs real window frames");
+  assert.ok(station.getObjectByName("station-canopy"), "station needs a sheltered waiting area");
+  assert.ok(station.getObjectByName("station-clock"));
   world.update(1100);
   const leaves = scene.getObjectByName("floating-lake-leaves");
   assert.ok(leaves instanceof THREE.InstancedMesh, "lake needs efficient floating vegetation");
@@ -444,4 +448,45 @@ test("inside-train cameras hide the opaque exterior shell but restore it outside
   view.setInteriorCameraMode(0);
   assert.equal(shell.visible, true);
   assert.equal(coach.visible, true);
+});
+
+test("tunnel mouths sit in mountains rather than tapering down to road level", () => {
+  const rail = new RailPath(71425);
+  const terrain = new Landscape(rail);
+  let portal = -1;
+  for (let s = 0; s < 12000; s += 3) {
+    if (rail.featureAt(s) === "tunnel" && rail.featureStrength(s) > .13 &&
+        rail.featureStrength(s) < .3) { portal = s; break; }
+  }
+  assert.ok(portal >= 0);
+  assert.ok(terrain.tunnelMountainStrength(portal) > .5);
+  assert.ok(terrain.height(portal, 30) > rail.point(portal).y + 8);
+});
+
+test("recessed river meshes join their banks without lateral or vertical seams", () => {
+  const rail = new RailPath(60008);
+  let crossing = -1;
+  for (let s = 750; s < 20000; s += 1550) {
+    if (rail.featureAt(s) === "bridge") { crossing = s; break; }
+  }
+  assert.ok(crossing >= 0);
+  const scene = new THREE.Scene();
+  const world = new WorldStream(scene, rail);
+  world.setDensity(.45);
+  world.setViewScale(.58);
+  world.update(crossing);
+  const river = scene.getObjectByName("recessed-river") as THREE.Mesh;
+  const banks = scene.getObjectByName("riverbank-soil") as THREE.Mesh;
+  assert.ok(river && banks);
+  const water = river.geometry.getAttribute("position");
+  const soil = banks.geometry.getAttribute("position");
+  assert.ok(water.count > 180);
+  for (let i = 0; i < water.count / 2; i += 15) {
+    for (const side of [0, 1]) {
+      const a = new THREE.Vector3().fromBufferAttribute(water, i * 2 + side);
+      const b = new THREE.Vector3().fromBufferAttribute(soil, i * 4 + side * 2);
+      assert.ok(a.distanceTo(b) < .001, "riverbank must join the water edge");
+    }
+  }
+  world.clear();
 });

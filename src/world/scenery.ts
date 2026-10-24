@@ -98,8 +98,12 @@ export function villageRegion(seed: number, index: number): { center: number; si
 function isVillageClearing(seed: number, index: number, s: number, offset: number): boolean {
   const region = villageRegion(seed, index);
   if (!region) return false;
-  const mid = index * CHUNK_LENGTH + CHUNK_LENGTH / 2;
-  return Math.abs(s - mid) < 113 && Math.abs(offset - region.side * 84) < 79;
+  const villageS = region.center * CHUNK_LENGTH + CHUNK_LENGTH / 2;
+  const villageOffset = region.side * 88;
+  // Compact clearing around the planned hamlet, not a vacant rectangle
+  // repeated once per streamed chunk.
+  return Math.pow((s - villageS) / 215, 2) +
+    Math.pow((offset - villageOffset) / 99, 2) < 1.1;
 }
 
 function isWater(ctx: Context, s: number, offset: number): boolean {
@@ -302,7 +306,8 @@ function houseDetailPrototype(biome: Biome, variant: number): THREE.Group {
   const front = -depth / 2;
   const wallTop = h + foundation;
 
-  block(house, stones, 0, 0.32, 0, wide + 0.65, 0.64, depth + 0.7);
+  // Deep masonry footing seals uneven terrain beneath elevated plots.
+  block(house, stones, 0, -0.35, 0, wide + 0.65, 2.0, depth + 0.7);
   block(house, wall, 0, h / 2 + foundation, 0, wide, h, depth);
   block(house, timber, 0, 0.76, 0, wide + 0.12, 0.23, depth + 0.12);
   // Stone corner quoins and irregular foundation blocks give the walls depth.
@@ -568,169 +573,247 @@ function makeOutbuilding(biome: Biome, kind: "barn" | "shop" | "workshop"): THRE
   return group.clone();
 }
 
+
 export function populateVillage(ctx: Context, index: number, mid: number): void {
   const region = villageRegion(ctx.rail.seed, index);
   if (!region) return;
   const seed = ctx.rail.seed, side = region.side;
-  const villageSeed = region.center;
-  const numberOfBuildings = 8 + Math.floor(hash(seed, villageSeed, index + 33) * 4);
-  const placed: Array<{ s: number; offset: number }> = [];
-  const walkVertices: number[] = [], walkColors: number[] = [], walkIndices: number[] = [];
-  const roadOffset = (s: number): number =>
-    side * (53 + Math.sin(s / 78 + hash(seed, villageSeed, 404) * 6) * 9);
-
-  // A connected, curved rural road follows the settlement through all three
-  // chunks. Paths and yards connect each home to this shared artery.
-  const roadVertices: number[] = [], roadColors: number[] = [], roadIndices: number[] = [];
-  const roadStart = mid - CHUNK_LENGTH / 2, roadEnd = mid + CHUNK_LENGTH / 2;
-  for (let roadS = roadStart; roadS < roadEnd; roadS += 4) {
-    const nextS = Math.min(roadEnd, roadS + 4);
-    if (isWater(ctx, roadS, roadOffset(roadS)) ||
-        isWater(ctx, nextS, roadOffset(nextS))) continue;
-    const base = roadVertices.length / 3;
-    for (const s of [roadS, nextS]) {
-      for (const edge of [-3.35, 3.35]) {
-        const offset = roadOffset(s) + edge;
-        const pos = basePoint(ctx, s, offset);
-        pos.y += .095;
-        roadVertices.push(pos.x, pos.y, pos.z);
-        const tint = .86 + hash(seed, Math.floor(s / 4), edge > 0 ? 31 : 32) * .21;
-        roadColors.push(tint, tint * .96, tint * .88);
+  const villageS = region.center * CHUNK_LENGTH + CHUNK_LENGTH / 2;
+  const villageOffset = side * (88 + hash(seed, region.center, 420) * 7);
+  const start = mid - CHUNK_LENGTH / 2, end = mid + CHUNK_LENGTH / 2;
+  type TownPoint = { s: number; offset: number };
+  const center: TownPoint = { s: villageS, offset: villageOffset };
+  const radiusS = 97 + hash(seed, region.center, 421) * 11;
+  const radiusOff = 40 + hash(seed, region.center, 422) * 9;
+  const loop = (angle: number): TownPoint => ({
+    s: villageS + Math.sin(angle) * radiusS +
+      Math.sin(angle * 3 + .45) * 8,
+    offset: villageOffset + side *
+      (Math.cos(angle) * radiusOff + Math.sin(angle * 2 + 1.3) * 7),
+  });
+  const hubs: TownPoint[] = [
+    { s: villageS - 157, offset: villageOffset - side * 22 },
+    { s: villageS + 158, offset: villageOffset + side * 26 },
+    { s: villageS + 12, offset: villageOffset + side * 54 },
+  ];
+  const mainVerts: number[] = [], mainColors: number[] = [], mainIndices: number[] = [];
+  const laneVerts: number[] = [], laneColors: number[] = [], laneIndices: number[] = [];
+  // A cross-section in rail-distance/lateral coordinates lets both verges
+  // sample the true height field, including on rising and twisting terrain.
+  const ribbon = (a: TownPoint, b: TownPoint, width: number,
+    narrow = false): void => {
+    const vertices = narrow ? laneVerts : mainVerts;
+    const colors = narrow ? laneColors : mainColors;
+    const indices = narrow ? laneIndices : mainIndices;
+    const centerS = (a.s + b.s) / 2;
+    if (centerS < start || centerS >= end) return;
+    if (isWater(ctx, a.s, a.offset) || isWater(ctx, b.s, b.offset)) return;
+    const tangentS = b.s - a.s, tangentO = b.offset - a.offset;
+    const length = Math.hypot(tangentS, tangentO);
+    if (length < .15) return;
+    const normalS = -tangentO / length, normalO = tangentS / length;
+    const base = vertices.length / 3;
+    for (const point of [a, b]) {
+      for (const flank of [-1, 1]) {
+        const at = basePoint(ctx, point.s + normalS * width * flank / 2,
+          point.offset + normalO * width * flank / 2);
+        // Maintain visible separation from ground and avoid coplanar shimmer.
+        vertices.push(at.x, at.y + (narrow ? .17 : .19), at.z);
+        const tint = .91 + hash(seed, Math.floor(point.s * .31), flank + 91) * .13;
+        colors.push(tint, tint * .94, tint * .83);
       }
     }
-    roadIndices.push(base, base + 2, base + 1,
-      base + 1, base + 2, base + 3);
-  }
-  if (roadVertices.length) {
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.Float32BufferAttribute(roadVertices, 3));
-    geometry.setAttribute("color", new THREE.Float32BufferAttribute(roadColors, 3));
-    geometry.setIndex(roadIndices);
-    geometry.computeVertexNormals();
-    const road = new THREE.Mesh(geometry, mudRoadMaterial);
-    road.name = "terrain-following-mud-road";
-    ctx.chunk.group.add(road);
-    ctx.chunk.geometries?.push(geometry);
-  }
-
-  for (let i = 0; i < numberOfBuildings; i++) {
-    let s = mid, offset = side * 90;
-    let found = false;
-    for (let attempt = 0; attempt < 14; attempt++) {
-      const key = i * 29 + attempt;
-      s = mid - 110 + hash(seed ^ 0x3b15e, index, key) * 220;
-      offset = roadOffset(s) + side * (11 + hash(seed ^ 0x941e5, index, key) * 38);
-      if (isWater(ctx, s, offset)) continue;
-      const slope = Math.abs(ctx.landscape.height(s, offset + 4) -
-        ctx.landscape.height(s, offset - 4));
-      if (slope > 5.4) continue;
-      if (placed.some(p => Math.hypot(s - p.s, offset - p.offset) < 11.5)) continue;
-      found = true;
-      break;
+    indices.push(base, base + 1, base + 2, base + 1, base + 3, base + 2);
+  };
+  const road = (points: TownPoint[], width: number, narrow = false): void => {
+    for (let k = 1; k < points.length; k++) {
+      const a = points[k - 1], b = points[k];
+      const length = Math.hypot(b.s - a.s, b.offset - a.offset);
+      const divisions = Math.max(1, Math.ceil(length / 3.2));
+      let previous = a;
+      for (let i = 1; i <= divisions; i++) {
+        const f = i / divisions;
+        const next = {
+          s: THREE.MathUtils.lerp(a.s, b.s, f),
+          offset: THREE.MathUtils.lerp(a.offset, b.offset, f),
+        };
+        ribbon(previous, next, width, narrow);
+        previous = next;
+      }
     }
-    if (!found) continue;
-    placed.push({ s, offset });
-    const style = i === 0 ? "barn" : i === 3 ? "shop" :
-      i === 5 && index === region.center ? "workshop" : null;
-    const building = style
-      ? makeOutbuilding(biomeAt(s), style)
-      : makeHouse(biomeAt(s), ((i + index * 3) % 12 + 12) % 12,
-        .73 + hash(seed + 6, index, i) * .39);
-    building.position.copy(basePoint(ctx, s, offset));
-    building.rotation.y = Math.atan2(-ctx.rail.tangent(s).x, -ctx.rail.tangent(s).z) +
-      (side < 0 ? Math.PI : 0) + (hash(seed ^ 0x861aa, index, i) - .5) * .52;
+  };
+  const bend = (a: TownPoint, b: TownPoint, curve: number): TownPoint[] => {
+    const points: TownPoint[] = [];
+    for (let step = 0; step <= 16; step++) {
+      const t = step / 16;
+      const arc = Math.sin(t * Math.PI) * curve;
+      points.push({
+        s: THREE.MathUtils.lerp(a.s, b.s, t) + arc,
+        offset: THREE.MathUtils.lerp(a.offset, b.offset, t) + side * arc * .27,
+      });
+    }
+    return points;
+  };
+
+  // A walkable connected street graph: uneven loop, three neighborhood lanes,
+  // a shared square and a sloping lane towards the railway.
+  const ring: TownPoint[] = [];
+  for (let i = 0; i <= 128; i++) ring.push(loop(i * Math.PI * 2 / 128));
+  road(ring, 5.2);
+  for (let i = 0; i < hubs.length; i++) {
+    const junction = loop([4.75, 1.30, 5.25][i]);
+    road(bend(junction, hubs[i], (i - 1) * 11), 4.1);
+    // Small curved lanes around satellite courtyards, connected to the
+    // main loop. Adjacent chunks contain actual neighborhoods.
+    const court: TownPoint[] = [];
+    for (let j = 0; j <= 44; j++) {
+      const a = j * Math.PI * 2 / 44;
+      court.push({ s: hubs[i].s + Math.sin(a) * 24,
+        offset: hubs[i].offset + Math.cos(a) * 17 });
+    }
+    road(court, 3.5);
+  }
+  road(bend(center, loop(.2), -9), 4.3);
+  road(bend(center, loop(3.1), 10), 4.3);
+  road(bend(
+    { s: villageS - 11, offset: side * 17 },
+    loop(Math.PI + .25), 9), 4.4);
+
+  const placed: TownPoint[] = [];
+  for (let i = 0; i < 42; i++) {
+    let lot: TownPoint, street: TownPoint;
+    if (i < 29) {
+      const angle = i / 29 * Math.PI * 2 +
+        (hash(seed ^ 0x88a1e, region.center, i) - .5) * .15;
+      street = loop(angle);
+      const behind = loop(angle + .016);
+      const ahead = loop(angle - .016);
+      const ds = behind.s - ahead.s, dOff = behind.offset - ahead.offset;
+      const length = Math.max(1, Math.hypot(ds, dOff));
+      const outward = i % 5 === 0 ? -1 : 1;
+      const setback = 11 + hash(seed, i, region.center + 791) * 12;
+      lot = {
+        s: street.s + (-dOff / length) * setback * outward,
+        offset: street.offset + (ds / length) * setback * outward,
+      };
+    } else {
+      const id = i - 29;
+      const hub = hubs[id % hubs.length];
+      const angle = Math.floor(id / 3) * Math.PI * 2 / 5 +
+        hash(seed ^ 0x441a, id % 3, region.center) * .17;
+      const r = 24 + hash(seed, i, region.center + 88) * 3;
+      lot = { s: hub.s + Math.sin(angle) * r,
+        offset: hub.offset + Math.cos(angle) * r };
+      street = hub;
+    }
+    // The spatial plan is global. Buildings belong to one chunk by s,
+    // regardless of load order, so reversing recreates identical streets.
+    if (placed.some(previous =>
+      Math.hypot(previous.s - lot.s, previous.offset - lot.offset) < 12)) continue;
+    if (isWater(ctx, lot.s, lot.offset)) continue;
+    const h = ctx.landscape.height(lot.s, lot.offset);
+    const cornerHeights = [-1, 1].flatMap(ds => [-1, 1].map(dOff =>
+      ctx.landscape.height(lot.s + ds * 4, lot.offset + dOff * 4)));
+    const high = Math.max(...cornerHeights);
+    if (high - Math.min(...cornerHeights) > 7.2) continue;
+    placed.push(lot);
+    if (lot.s < start || lot.s >= end) continue;
+    const style = i % 17 === 0 ? "barn" : i % 13 === 4 ? "shop" :
+      i === 33 ? "workshop" : null;
+    const building = style ? makeOutbuilding(biomeAt(lot.s), style) :
+      makeHouse(biomeAt(lot.s), (i * 5 + region.center * 3 + 120) % 12,
+        .75 + hash(seed ^ 0x3b8c, region.center, i) * .4);
+    building.position.copy(basePoint(ctx, lot.s, lot.offset));
+    building.position.y += Math.max(0, high - h) + .12;
+    const housePoint = basePoint(ctx, lot.s, lot.offset);
+    const streetPoint = basePoint(ctx, street.s, street.offset);
+    const towardStreet = streetPoint.sub(housePoint);
+    building.rotation.y = Math.atan2(-towardStreet.x, -towardStreet.z) +
+      (hash(seed, i, region.center + 920) - .5) * .20;
     ctx.chunk.group.add(building);
 
-    // Thin muddy lane follows the actual ground; no floating box segments.
-    const street = roadOffset(s);
-    const length = Math.abs(offset - street);
-    const steps = Math.max(2, Math.ceil(length / 3));
-    for (let j = 0; j < steps; j++) {
-      const near = street + (offset - street) * j / steps;
-      const far = street + (offset - street) * (j + 1) / steps;
-      if (isWater(ctx, s, near) || isWater(ctx, s, far)) continue;
-      const base = walkVertices.length / 3;
-      for (const atOffset of [near, far]) {
-        for (const ds of [-1.35, 1.35]) {
-          const p = basePoint(ctx, s + ds, atOffset);
-          walkVertices.push(p.x, p.y + .11, p.z);
-          const tint = .82 + hash(seed, Math.floor(s + ds), j * 5) * .22;
-          walkColors.push(tint, tint * .95, tint * .84);
-        }
+    // Curving driveways end on the loop or a branch rather than forming
+    // uniform perpendicular teeth off a straight arterial road.
+    const middle: TownPoint = {
+      s: THREE.MathUtils.lerp(lot.s, street.s, .47) +
+        (hash(seed, i, 68) - .5) * 3.4,
+      offset: THREE.MathUtils.lerp(lot.offset, street.offset, .47) +
+        side * (hash(seed, i, 69) - .5) * 2.8,
+    };
+    road([street, middle, lot], 2.25, true);
+    if (i % 4 === 0) {
+      const garden = basePoint(ctx, lot.s + 7, lot.offset + side * 6);
+      for (const delta of [-1.4, 0, 1.4]) {
+        block(ctx.chunk.group, field, garden.x + delta,
+          garden.y + .24, garden.z, .75, .34, 5.6);
       }
-      walkIndices.push(base, base + 1, base + 2, base + 1, base + 3, base + 2);
     }
     if (i % 3 === 0) {
-      const gardenS = Math.min(mid + 111, s + 11);
-      const gardenOffset = offset + side * 8;
-      if (!isWater(ctx, gardenS, gardenOffset)) {
-        const plot = basePoint(ctx, gardenS, gardenOffset);
-        block(ctx.chunk.group, soil, plot.x, plot.y + .08, plot.z, 7.0, .16, 9.2);
-        for (let bed = -1; bed <= 1; bed++) {
-          block(ctx.chunk.group, field, plot.x + bed * 1.75,
-            plot.y + .19, plot.z, .9, .16, 7.8);
-        }
-      }
-    }
-    if (i % 2 === 0) {
-      for (const x of [-3.4, 3.4]) {
-        const at = basePoint(ctx, s + 6, offset + x);
-        block(ctx.chunk.group, fence, at.x, at.y + .6, at.z, .16, 1.2, .16);
-      }
+      const tree = basePoint(ctx, lot.s - 7, lot.offset + side * 6);
+      block(ctx.chunk.group, timber, tree.x, tree.y + 1.15, tree.z, .33, 2.3, .33);
+      const canopy = new THREE.Mesh(shrubShape, gardenGreen);
+      canopy.position.set(tree.x, tree.y + 2.85, tree.z);
+      canopy.scale.set(1.6, 1.7, 1.6);
+      ctx.chunk.group.add(canopy);
     }
   }
-  // Shared village amenities fill the center of each lived-in settlement.
+
   if (index === region.center) {
-    const nearRoad = roadOffset(mid) + side * 16;
-    if (!isWater(ctx, mid, nearRoad)) {
-      const well = new THREE.Group();
-      well.position.copy(basePoint(ctx, mid, nearRoad));
-      for (let j = 0; j < 8; j++) {
-        const theta = j * Math.PI / 4;
-        const stone = new THREE.Mesh(reusableBox, stones);
-        stone.position.set(Math.cos(theta) * 1.35, .66, Math.sin(theta) * 1.35);
-        stone.rotation.y = -theta;
-        stone.scale.set(1.25, 1.2, .45);
-        well.add(stone);
-      }
-      block(well, timber, -1.7, 2.45, 0, .25, 3.35, .25);
-      block(well, timber, 1.7, 2.45, 0, .25, 3.35, .25);
-      block(well, roofs[2], 0, 4.18, 0, 4.15, .25, 3.2);
-      block(well, timber, 0, 2.9, 0, 3.6, .14, .14);
-      ctx.chunk.group.add(well);
+    // A village square with a well, market stalls, seating and a playground.
+    const well = new THREE.Group();
+    well.position.copy(basePoint(ctx, center.s - 12, center.offset - side * 6));
+    for (let j = 0; j < 10; j++) {
+      const angle = j * 2 * Math.PI / 10;
+      const rock = new THREE.Mesh(reusableBox, stones);
+      rock.position.set(Math.cos(angle) * 1.55, .75, Math.sin(angle) * 1.55);
+      rock.rotation.y = angle;
+      rock.scale.set(.95, 1.55, .45);
+      well.add(rock);
     }
-    const playS = mid + 32;
-    const playOffset = roadOffset(playS) + side * 15;
-    if (!isWater(ctx, playS, playOffset)) {
-      const park = new THREE.Group();
-      park.position.copy(basePoint(ctx, playS, playOffset));
-      // Swing set: A-frame posts, two seats and chains.
-      for (const z of [-2.1, 2.1]) for (const x of [-2.8, 2.8]) {
-        const post = block(park, timber, x, 1.75, z, .22, 3.5, .24);
-        post.rotation.z = (x > 0 ? 1 : -1) * .13;
-      }
-      block(park, roofEdge, 0, 3.45, 0, 6.3, .22, .21);
-      for (const x of [-1.45, 1.45]) {
-        for (const shift of [-.45, .45]) {
-          block(park, stones, x + shift, 2.1, -.45, .05, 2.1, .05);
-        }
-        block(park, roofs[1], x, 1.05, -.45, 1.1, .18, .6);
-      }
-      block(park, flowerPink, 5.0, .65, 0, 1.55, 1.3, 1.55);
-      ctx.chunk.group.add(park);
+    for (const x of [-1.95, 1.95]) block(well, timber, x, 2.4, 0, .2, 3.3, .2);
+    block(well, roofs[2], 0, 4.2, 0, 4.4, .28, 3.5);
+    block(well, timber, 0, 2.82, 0, 4.1, .12, .12);
+    ctx.chunk.group.add(well);
+    const park = new THREE.Group();
+    park.position.copy(basePoint(ctx, center.s + 18, center.offset + side * 6));
+    for (const x of [-2.8, 2.8]) for (const z of [-1.8, 1.8]) {
+      const post = block(park, timber, x, 1.7, z, .24, 3.4, .23);
+      post.rotation.z = (x > 0 ? 1 : -1) * .14;
+    }
+    block(park, roofEdge, 0, 3.37, 0, 6.2, .18, .18);
+    for (const x of [-1.25, 1.25]) {
+      block(park, roofs[1], x, 1.05, -.5, 1.06, .17, .65);
+      for (const delta of [-.44, .44])
+        block(park, stones, x + delta, 2.08, -.5, .05, 2.2, .05);
+    }
+    ctx.chunk.group.add(park);
+    for (let i = 0; i < 3; i++) {
+      const market = new THREE.Group();
+      const marketS = center.s - 35 + i * 23;
+      market.position.copy(basePoint(ctx, marketS, center.offset + side * 18));
+      for (const x of [-2, 2]) for (const z of [-1.4, 1.4])
+        block(market, timber, x, 1.7, z, .16, 3.4, .16);
+      block(market, roofs[(i + 1) % roofs.length], 0, 3.4, 0, 5.2, .22, 4.2);
+      block(market, paths, 0, .6, 0, 4.2, 1.1, 2.8);
+      ctx.chunk.group.add(market);
     }
   }
-  if (walkVertices.length) {
+
+  const upload = (vertices: number[], colors: number[], indices: number[],
+    name: string): void => {
+    if (!vertices.length) return;
     const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.Float32BufferAttribute(walkVertices, 3));
-    geometry.setAttribute("color", new THREE.Float32BufferAttribute(walkColors, 3));
-    geometry.setIndex(walkIndices);
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
+    geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+    geometry.setIndex(indices);
     geometry.computeVertexNormals();
-    const lanes = new THREE.Mesh(geometry, mudRoadMaterial);
-    lanes.name = "terrain-following-house-paths";
-    ctx.chunk.group.add(lanes);
+    const mesh = new THREE.Mesh(geometry, mudRoadMaterial);
+    mesh.name = name;
+    ctx.chunk.group.add(mesh);
     ctx.chunk.geometries?.push(geometry);
-  }
+  };
+  upload(mainVerts, mainColors, mainIndices, "terrain-following-mud-road");
+  upload(laneVerts, laneColors, laneIndices, "terrain-following-house-paths");
 }
 
 const animalMaterials: Record<string, THREE.MeshLambertMaterial> = {

@@ -60,9 +60,14 @@ export class Landscape {
     if (feature === "bridge") {
       height -= 17 * strength * (1 - smooth(16, 62, away));
     } else if (feature === "tunnel") {
-      const bank = smooth(5, 15, away) * (1 - smooth(95, 175, away));
-      height = Math.max(height + 29 * strength * bank,
-        track + 18 * strength * bank);
+      // The mountain is a landform *before* excavation. Do not taper both
+      // flanks down to track level at the portal as featureStrength ramps up.
+      // Neighbor samples carry the same mountain mass to the tunnel mouth.
+      const mountain = this.tunnelMountainStrength(s);
+      const bank = smooth(6, 17, away) * (1 - smooth(114, 188, away));
+      const rockWall = 16 + 7 * this.noise(s / 115, offset / 91, 192);
+      height = Math.max(height + rockWall * mountain * bank,
+        track + 15.5 * mountain * bank);
     } else if (feature === "cutting") {
       const bank = smooth(8, 27, away) * (1 - smooth(59, 96, away));
       height += 12 * strength * bank;
@@ -94,6 +99,19 @@ export class Landscape {
         Math.min(height, reservoir.waterY - 1.3), carve);
     }
     return height;
+  }
+
+  /** Geological mountain relief remains high at both tunnel entrances. */
+  tunnelMountainStrength(s: number): number {
+    if (this.rail.featureAt(s) !== "tunnel") return 0;
+    const mass = Math.max(
+      this.rail.featureStrength(s),
+      this.rail.featureAt(s + 65) === "tunnel" ?
+        this.rail.featureStrength(s + 65) * .95 : 0,
+      this.rail.featureAt(s - 65) === "tunnel" ?
+        this.rail.featureStrength(s - 65) * .95 : 0,
+    );
+    return smooth(.03, .61, mass);
   }
 
   /** Stable river path that crosses the railway at a planned bridge. */
