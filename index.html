@@ -25,16 +25,9 @@
 
     <section id="game-hud" class="game-hud" aria-label="Train status" hidden>
       <div id="hud-main" class="hud-main">
-        <div class="hud-title">
-          <span class="eyebrow">ENDLESS RAIL</span>
-          <div class="hud-actions">
-            <button id="hud-collapse" class="hud-pause" aria-label="Collapse driving HUD" title="Hide HUD"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 15 7-7 7 7"/></svg></button>
-            <button id="settings-button" class="hud-pause" aria-label="Open settings" aria-expanded="false" aria-controls="settings-drawer"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 3h4l.5 2.2 1.8.8 2-.9 2.8 2.8-.9 2 .8 1.8 2.2.5v4l-2.2.5-.8 1.8.9 2-2.8 2.8-2-.9-1.8.8L14 24h-4l-.5-2.2-1.8-.8-2 .9-2.8-2.8.9-2-.8-1.8L.8 14.8v-4l2.2-.5.8-1.8-.9-2L5.7 3.7l2 .9 1.8-.8L10 3Z" transform="translate(0 -1.4) scale(.94)"/><circle cx="12" cy="12" r="3"/></svg></button>
-            <button class="hud-pause" data-control="pause" aria-label="Pause game">Ⅱ</button>
-          </div>
-        </div>
+        <div class="hud-title"><span class="eyebrow">ENDLESS RAIL · DRIVING</span><span class="hud-tap-hint">Tap speed to simplify</span></div>
         <div class="hud-readout">
-          <div class="speed"><strong id="speed-value">0</strong><span>KM/H</span></div>
+          <button id="hud-collapse" class="speed speed-button" aria-label="Minimize speed HUD" title="Simplify HUD"><strong id="speed-value">0</strong><span>KM/H</span></button>
           <div class="hud-telemetry">
             <div class="hud-details">
               <span id="mode-value">MANUAL</span>
@@ -51,11 +44,11 @@
         </div>
       </div>
       <div id="hud-collapsed" class="hud-collapsed" hidden>
-        <div class="hud-compact-speed"><b id="compact-speed">0</b> KM/H</div>
-        <div class="hud-compact-actions">
-          <button id="hud-expand" aria-label="Expand driving HUD" title="Show HUD"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 9 7 7 7-7"/></svg></button>
-          <button id="compact-settings" aria-label="Open settings" title="Settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6l1.4 1.4m10 10 1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg></button>
-        </div>
+        <button id="hud-expand" class="hud-compact-speed" aria-label="Expand driving HUD" title="Show driving details"><b id="compact-speed">0</b><span> KM/H</span></button>
+      </div>
+      <div class="hud-quick-actions" aria-label="Journey shortcuts">
+        <button id="settings-button" class="hud-pause" aria-label="Open settings" aria-expanded="false" aria-controls="settings-drawer" title="Settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M4.9 4.9l2.1 2.1m10 10 2.1 2.1m0-14.2L17 7m-10 10-2.1 2.1"/></svg></button>
+        <button class="hud-pause" data-control="pause" aria-label="Pause game" title="Pause">Ⅱ</button>
       </div>
       <button id="recover-button" class="recover" hidden>Train derailed — recover</button>
       <div id="safety-warning" class="driving-notice safety-warning" role="status" hidden></div>
@@ -154,7 +147,6 @@
       </div>
     </aside>
 
-    <button id="bottom-controls-toggle" class="bottom-controls-toggle" aria-label="Hide driving controls" aria-expanded="true" hidden>⌄</button>
     <div id="touch-controls" class="touch-controls" aria-label="Touch train controls" hidden>
       <div class="touch-cluster">
         <button data-control="brake" aria-label="Hold brake">BRAKE</button>

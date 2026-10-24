@@ -53,30 +53,23 @@ test("free camera and keyboard horn remain available", async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
-test("top and bottom gameplay panels collapse independently without losing settings", async ({ page }) => {
+test("speed HUD toggles by tapping speed while driving controls stay available", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
   await page.goto("/");
   await page.locator("#play-button").click();
-  const mainBounds = await page.locator("#hud-main").boundingBox();
-  expect(mainBounds?.width).toBeLessThan(430);
-  await expect(page.locator(".hud-readout")).toBeVisible();
+  const topRight = await page.locator(".hud-quick-actions").boundingBox();
+  expect(topRight?.x).toBeGreaterThan(500);
   await page.locator("#hud-collapse").click();
-  await expect(page.locator("#hud-main")).toHaveAttribute("hidden", "");
-  await expect(page.locator("#hud-collapsed")).not.toHaveAttribute("hidden", "");
-  await expect(page.locator("#compact-settings")).toHaveAttribute("aria-label", "Open settings");
-  await expect(page.locator("#compact-settings svg")).toBeVisible();
-  await page.locator("#compact-settings").click();
+  await expect(page.locator("#hud-main")).toBeHidden();
+  await expect(page.locator("#hud-collapsed")).toBeVisible();
+  await expect(page.locator("#hud-expand")).toHaveAttribute("aria-label", "Expand driving HUD");
+  await page.locator("#settings-button").click();
   await expect(page.locator("#settings-drawer")).toHaveClass(/is-open/);
   await page.locator("#settings-close").click();
   await page.locator("#hud-expand").click();
-  await expect(page.locator("#hud-main")).not.toHaveAttribute("hidden", "");
-  await page.locator("#bottom-controls-toggle").evaluate((button: HTMLButtonElement) => button.click());
-  await expect(page.locator("#bottom-controls-toggle")).toHaveAttribute("aria-expanded", "false");
-  await expect(page.locator("#touch-controls")).toHaveAttribute("hidden", "");
-  await page.locator("#bottom-controls-toggle").evaluate((button: HTMLButtonElement) => button.click());
-  await expect(page.locator("#bottom-controls-toggle")).toHaveAttribute("aria-expanded", "true");
-  await expect(page.locator("#touch-controls")).not.toHaveAttribute("hidden", "");
+  await expect(page.locator("#hud-main")).toBeVisible();
+  await expect(page.locator("#bottom-controls-toggle")).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 
@@ -89,11 +82,8 @@ test("tablet-sized touch viewport keeps controls recoverable and free-look ancho
   await page.locator("#hud-collapse").click();
   await expect(page.locator("#hud-collapsed")).toBeVisible();
   await expect(page.locator("#hud-expand")).toHaveAttribute("aria-label", "Expand driving HUD");
-  await expect(page.locator("#hud-expand svg")).toBeVisible();
-  await page.locator("#bottom-controls-toggle").evaluate((button: HTMLButtonElement) => button.click());
-  await expect(page.locator("#bottom-controls-toggle")).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator("#hud-expand")).toContainText("KM/H");
   await page.locator("#hud-expand").click();
-  await page.locator("#bottom-controls-toggle").evaluate((button: HTMLButtonElement) => button.click());
   await page.locator("#settings-button").click();
   await page.locator("#drawer-freecam-button").click();
   await expect(page.locator("#free-controls")).not.toHaveAttribute("hidden", "");
