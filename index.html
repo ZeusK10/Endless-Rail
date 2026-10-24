@@ -28,26 +28,33 @@
         <div class="hud-title">
           <span class="eyebrow">ENDLESS RAIL</span>
           <div class="hud-actions">
-            <button id="hud-collapse" class="hud-pause" aria-label="Collapse driving HUD" title="Hide HUD">⌃</button>
-            <button id="settings-button" class="hud-pause" aria-label="Open settings" aria-expanded="false" aria-controls="settings-drawer">⚙</button>
+            <button id="hud-collapse" class="hud-pause" aria-label="Collapse driving HUD" title="Hide HUD"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 15 7-7 7 7"/></svg></button>
+            <button id="settings-button" class="hud-pause" aria-label="Open settings" aria-expanded="false" aria-controls="settings-drawer"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 3h4l.5 2.2 1.8.8 2-.9 2.8 2.8-.9 2 .8 1.8 2.2.5v4l-2.2.5-.8 1.8.9 2-2.8 2.8-2-.9-1.8.8L14 24h-4l-.5-2.2-1.8-.8-2 .9-2.8-2.8.9-2-.8-1.8L.8 14.8v-4l2.2-.5.8-1.8-.9-2L5.7 3.7l2 .9 1.8-.8L10 3Z" transform="translate(0 -1.4) scale(.94)"/><circle cx="12" cy="12" r="3"/></svg></button>
             <button class="hud-pause" data-control="pause" aria-label="Pause game">Ⅱ</button>
           </div>
         </div>
-        <div class="speed"><strong id="speed-value">0</strong><span>KM/H</span></div>
-        <div class="hud-details">
-          <span id="mode-value">MANUAL</span><span>·</span>
-          <span id="direction-value">FORWARD</span><span id="cruise-target" hidden></span>
-          <span>Limit <b id="speed-limit-value">110</b> km/h</span>
+        <div class="hud-readout">
+          <div class="speed"><strong id="speed-value">0</strong><span>KM/H</span></div>
+          <div class="hud-telemetry">
+            <div class="hud-details">
+              <span id="mode-value">MANUAL</span>
+              <span id="direction-value">FORWARD</span>
+              <span id="cruise-target" hidden></span>
+              <span class="limit-pill">LIMIT <b id="speed-limit-value">110</b></span>
+            </div>
+            <div class="hud-details">
+              <span>POWER <b id="throttle-value">0%</b></span>
+              <span>BRAKE <b id="brake-value">0%</b></span>
+              <span>TRIP <b id="distance-value">0.0</b> KM</span>
+            </div>
+          </div>
         </div>
-        <div class="hud-details"><span>Throttle <b id="throttle-value">0%</b></span>
-          <span>Brake <b id="brake-value">0%</b></span>
-          <span>Distance <b id="distance-value">0.0</b> km</span></div>
       </div>
       <div id="hud-collapsed" class="hud-collapsed" hidden>
         <div class="hud-compact-speed"><b id="compact-speed">0</b> KM/H</div>
         <div class="hud-compact-actions">
-          <button id="hud-expand" aria-label="Expand driving HUD" title="Show HUD">⌄</button>
-          <button id="compact-settings" aria-label="Open settings" title="Settings">⚙</button>
+          <button id="hud-expand" aria-label="Expand driving HUD" title="Show HUD"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 9 7 7 7-7"/></svg></button>
+          <button id="compact-settings" aria-label="Open settings" title="Settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6l1.4 1.4m10 10 1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg></button>
         </div>
       </div>
       <button id="recover-button" class="recover" hidden>Train derailed — recover</button>

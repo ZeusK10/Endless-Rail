@@ -58,10 +58,14 @@ test("top and bottom gameplay panels collapse independently without losing setti
   page.on("pageerror", error => errors.push(error.message));
   await page.goto("/");
   await page.locator("#play-button").click();
+  const mainBounds = await page.locator("#hud-main").boundingBox();
+  expect(mainBounds?.width).toBeLessThan(430);
+  await expect(page.locator(".hud-readout")).toBeVisible();
   await page.locator("#hud-collapse").click();
   await expect(page.locator("#hud-main")).toHaveAttribute("hidden", "");
   await expect(page.locator("#hud-collapsed")).not.toHaveAttribute("hidden", "");
-  await expect(page.locator("#compact-settings")).toHaveText("⚙");
+  await expect(page.locator("#compact-settings")).toHaveAttribute("aria-label", "Open settings");
+  await expect(page.locator("#compact-settings svg")).toBeVisible();
   await page.locator("#compact-settings").click();
   await expect(page.locator("#settings-drawer")).toHaveClass(/is-open/);
   await page.locator("#settings-close").click();
@@ -84,7 +88,8 @@ test("tablet-sized touch viewport keeps controls recoverable and free-look ancho
   await page.getByRole("button", { name: /Start journey/i }).click();
   await page.locator("#hud-collapse").click();
   await expect(page.locator("#hud-collapsed")).toBeVisible();
-  await expect(page.locator("#hud-expand")).toHaveText("⌄");
+  await expect(page.locator("#hud-expand")).toHaveAttribute("aria-label", "Expand driving HUD");
+  await expect(page.locator("#hud-expand svg")).toBeVisible();
   await page.locator("#bottom-controls-toggle").evaluate((button: HTMLButtonElement) => button.click());
   await expect(page.locator("#bottom-controls-toggle")).toHaveAttribute("aria-expanded", "false");
   await page.locator("#hud-expand").click();
