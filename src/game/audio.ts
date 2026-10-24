@@ -18,6 +18,7 @@ export interface TrainSoundFrame {
 interface LoopVoice {
   source: AudioBufferSourceNode;
   gain: GainNode;
+  level: number;
 }
 
 type SampleName = "idle" | "rolling" | "horn";
@@ -163,6 +164,13 @@ export class TrainAudio {
     return result;
   }
 
+  private sampleRms(buffer: AudioBuffer): number {
+    const channel = buffer.getChannelData(0);
+    let energy = 0;
+    for (let i = 0; i < channel.length; i++) energy += channel[i] * channel[i];
+    return Math.sqrt(energy / Math.max(1, channel.length));
+  }
+
   private makeLoop(buffer: AudioBuffer, highCut: number, railDetail = false): LoopVoice {
     const context = this.context!;
     const output = this.output!;
@@ -185,7 +193,14 @@ export class TrainAudio {
     gain.gain.value = 0;
     source.connect(cleanBass).connect(cleanTreble).connect(presence).connect(gain).connect(output);
     source.start();
-    return { source, gain };
+    // The field recordings have very different mastering levels: the rail
+    // sample is roughly 11 dB quieter than the idling locomotive. Match
+    // perceived RMS before applying the gameplay speed crossfade.
+    const rms = this.sampleRms(buffer);
+    const level = railDetail
+      ? clamp(0.085 / Math.max(0.008, rms), 1, 3.5)
+      : clamp(0.07 / Math.max(0.008, rms), 0.6, 1.3);
+    return { source, gain, level };
   }
 
   private noiseBurst(
@@ -239,13 +254,14 @@ export class TrainAudio {
       ramp(this.idleVoice.source.playbackRate, 0.94 + throttle * 0.17 + speed * 0.05, 0.35);
       // Preserve a subtle diesel idle while wheels dominate as speed rises.
       ramp(this.idleVoice.gain.gain, active
-        ? Math.max(0.035, 0.19 + throttle * 0.07 - speed * 0.17) : 0);
+        ? this.idleVoice.level * Math.max(0.035, 0.19 + throttle * 0.07 - speed * 0.17) : 0);
     }
     if (this.railVoice) {
       ramp(this.railVoice.source.playbackRate, 0.83 + speed * 0.49, 0.26);
       const speedBlend = clamp((frame.speedKmh - 3) / 22);
       ramp(this.railVoice.gain.gain,
-        active && moving ? speedBlend * (0.50 + Math.sqrt(speed) * 0.30) : 0, 0.27);
+        active && moving ? this.railVoice.level * speedBlend *
+          (0.50 + Math.sqrt(speed) * 0.30) : 0, 0.27);
     }
 
     // No jet-like continuous whoosh. The low fallback pulse fades as soon as
@@ -297,9 +313,12 @@ export class TrainAudio {
       equalizer.frequency.value = 90;
       const volume = context.createGain();
       const length = recording.duration;
+      // The source horn averages only -30 dBFS; boost it to a clearly audible
+      // blast, with the master compressor catching occasional peaks.
+      const hornLevel = clamp(0.22 / Math.max(0.01, this.sampleRms(recording)), 1.5, 8);
       volume.gain.setValueAtTime(0.001, now);
-      volume.gain.linearRampToValueAtTime(1.25, now + 0.11);
-      volume.gain.setValueAtTime(1.25, now + Math.max(0.12, length - 0.45));
+      volume.gain.linearRampToValueAtTime(hornLevel, now + 0.11);
+      volume.gain.setValueAtTime(hornLevel, now + Math.max(0.12, length - 0.45));
       volume.gain.linearRampToValueAtTime(0.001, now + length);
       source.connect(equalizer).connect(volume).connect(output);
       source.start(now);
