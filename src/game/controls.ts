@@ -3,6 +3,8 @@ import * as THREE from "three";
 export interface InputFrame {
   throttleUp: boolean;
   throttleDown: boolean;
+  throttleTapUp: boolean;
+  throttleTapDown: boolean;
   brake: number;
   mode: boolean;
   reverse: boolean;
@@ -93,6 +95,13 @@ export class Controls {
     document.addEventListener("pointerup", release);
     document.addEventListener("pointercancel", release);
     document.addEventListener("lostpointercapture", release);
+    // Keyboard/switch activation of an on-screen control creates a click
+    // without a pointer event. Capture that as a one-frame command too.
+    document.addEventListener("click", event => {
+      if ((event as MouseEvent).detail !== 0) return;
+      const action = (event.target as HTMLElement).closest<HTMLElement>("[data-control]")?.dataset.control;
+      if (action) this.pendingTaps.add(action);
+    });
   }
 
   private edge(key: string, active: boolean): boolean {
@@ -127,14 +136,17 @@ export class Controls {
       (button(5) > 0.45 ? 1 : 0) - (button(4) > 0.45 ? 1 : 0);
     this.deltaX = 0;
     this.deltaY = 0;
-    this.pendingTaps.clear();
 
-    return {
+    const frame: InputFrame = {
       throttleUp: down("KeyW", "throttle") || button(7) > 0.1 ||
-        this.keys.has("ArrowUp"),
-      throttleDown: down("KeyQ", "throttleDown") || button(4) > 0.4,
+        this.keys.has("ArrowUp") || this.pendingTaps.has("throttle"),
+      throttleDown: down("KeyQ", "throttleDown") || button(4) > 0.4 ||
+        this.pendingTaps.has("throttleDown"),
+      throttleTapUp: this.pendingTaps.has("throttle"),
+      throttleTapDown: this.pendingTaps.has("throttleDown"),
       brake: Math.max(
-        down("KeyS", "brake") || this.keys.has("ArrowDown") ? 1 : 0,
+        down("KeyS", "brake") || this.keys.has("ArrowDown") ||
+          this.pendingTaps.has("brake") ? 1 : 0,
         button(6),
       ),
       mode: pressed("KeyM", "mode", 5),
@@ -155,5 +167,7 @@ export class Controls {
       flyFast: this.keys.has("ControlLeft") || button(7) > 0.5,
       pause: pressed("Escape", "pause", 9),
     };
+    this.pendingTaps.clear();
+    return frame;
   }
 }

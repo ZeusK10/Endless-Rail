@@ -324,8 +324,10 @@ renderer.setAnimationLoop((time) => {
       // Keyboard navigation in free-fly mode must never brake the train.
       simulation.applyBrake(0);
     } else {
-      if (input.throttleUp) simulation.adjustThrottle(dt * 0.43);
-      if (input.throttleDown) simulation.adjustThrottle(-dt * 0.43);
+      if (input.throttleTapUp) simulation.adjustThrottle(0.055);
+      if (input.throttleTapDown) simulation.adjustThrottle(-0.055);
+      if (input.throttleUp && !input.throttleTapUp) simulation.adjustThrottle(dt * 0.43);
+      if (input.throttleDown && !input.throttleTapDown) simulation.adjustThrottle(-dt * 0.43);
       simulation.applyBrake(input.brake);
       cameraYaw += input.cameraX * dt * 1.5 + input.pointerX * 0.004;
       cameraPitch = THREE.MathUtils.clamp(
