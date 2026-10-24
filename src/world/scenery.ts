@@ -90,14 +90,14 @@ function isWater(ctx: Context, s: number, offset: number): boolean {
   return Math.hypot((s - lake.s) / 82, (offset - lake.offset) / 64) < 1.1;
 }
 
-export function populateLandscape(ctx: Context, index: number, start: number, end: number): void {
+export function populateLandscape(
+  ctx: Context, index: number, start: number, end: number, densityScale = 1,
+): void {
   const seed = ctx.rail.seed;
-  const candidates = 340;
+  const candidates = Math.round(340 * densityScale);
   const trunks = new THREE.InstancedMesh(trunkShape, wood, candidates);
-  const crowns = canopyShapes.flatMap(shape => [
-    new THREE.InstancedMesh(shape, leaves, candidates),
-    new THREE.InstancedMesh(shape, leaves, candidates),
-  ]);
+  const crowns = canopyShapes.flatMap(shape =>
+    [0, 1, 2].map(() => new THREE.InstancedMesh(shape, leaves, candidates)));
   const crownCounts = [0, 0, 0];
   let trees = 0;
 
@@ -123,36 +123,52 @@ export function populateLandscape(ctx: Context, index: number, start: number, en
     const foliage = FOLIAGE[biome];
     const color = foliage[Math.floor(rand(37) * foliage.length)];
     const count = crownCounts[species]++;
-    const crownBase = species === 1 ? 4.4 : 3.8;
-    const crownSize = species === 1 ? 1.05 : 1.35;
-    const first = crowns[species * 2];
-    const second = crowns[species * 2 + 1];
-    setInstance(first, count, base.clone().add(new THREE.Vector3(0, crownBase * size, 0)),
-      new THREE.Vector3(crownSize * size, (species === 1 ? 1.25 : 0.86) * size,
-        crownSize * size), angle, color);
-    setInstance(second, count,
-      base.clone().add(new THREE.Vector3(
-        species === 2 ? 0.68 * size : 0,
-        (crownBase + (species === 1 ? 1.45 : 0.85)) * size,
-        species === 2 ? 0.42 * size : 0)),
-      new THREE.Vector3(crownSize * 0.78 * size,
-        (species === 1 ? 1.02 : 0.73) * size,
-        crownSize * 0.78 * size), angle + 0.4, color);
+    // Three offset foliage masses per tree add asymmetry to broadleaf and
+    // cherry crowns; pines use overlapping tapered tiers.
+    for (let layer = 0; layer < 3; layer++) {
+      let dx = 0;
+      let dz = 0;
+      let height = 0;
+      let radius = 1;
+      let stretch = 1;
+      if (species === 1) {
+        height = (3.55 + layer * 1.22) * size;
+        radius = (1.24 - layer * 0.29) * size;
+        stretch = 1.36;
+      } else {
+        dx = (layer === 1 ? -0.93 : layer === 2 ? 0.92 : 0) * size;
+        dz = (layer === 1 ? 0.36 : layer === 2 ? -0.47 : 0) * size;
+        height = (layer === 0 ? 4.3 : 3.65) * size;
+        radius = (layer === 0 ? 1.38 : 1.03) * size;
+        stretch = 0.78 + rand(41 + layer) * 0.2;
+      }
+      const crown = crowns[species * 3 + layer];
+      const tint = layer === 1 && foliage.length > 2
+        ? foliage[(Math.floor(rand(37) * foliage.length) + 1) % foliage.length]
+        : color;
+      setInstance(crown, count, base.clone().add(new THREE.Vector3(dx, height, dz)),
+        new THREE.Vector3(radius, radius * stretch, radius),
+        angle + layer * 0.27, tint);
+    }
   }
   addInstances(ctx, trunks, trees);
   for (let species = 0; species < 3; species++) {
-    addInstances(ctx, crowns[species * 2], crownCounts[species]);
-    addInstances(ctx, crowns[species * 2 + 1], crownCounts[species]);
+    for (let layer = 0; layer < 3; layer++) {
+      addInstances(ctx, crowns[species * 3 + layer], crownCounts[species]);
+    }
   }
 
   // Low vegetation, flowers and scattered rocks fill the gaps between woods.
-  const shrubs = new THREE.InstancedMesh(shrubShape, grassMaterial, 230);
-  const flowers = new THREE.InstancedMesh(flowerShape, grassMaterial, 250);
-  const rocks = new THREE.InstancedMesh(rockShape, stoneMaterial, 75);
+  const shrubMax = Math.round(230 * densityScale);
+  const flowerMax = Math.round(250 * densityScale);
+  const rockMax = Math.round(75 * densityScale);
+  const shrubs = new THREE.InstancedMesh(shrubShape, grassMaterial, shrubMax);
+  const flowers = new THREE.InstancedMesh(flowerShape, grassMaterial, flowerMax);
+  const rocks = new THREE.InstancedMesh(rockShape, stoneMaterial, rockMax);
   let shrubsCount = 0;
   let flowerCount = 0;
   let rockCount = 0;
-  for (let i = 0; i < 430; i++) {
+  for (let i = 0; i < Math.round(430 * densityScale); i++) {
     const rand = (salt: number) => hash(seed + salt, index, i);
     const s = start + 2 + rand(101) * (end - start - 4);
     const offset = (rand(102) > 0.5 ? 1 : -1) * (6 + rand(103) * 184);
@@ -160,17 +176,17 @@ export function populateLandscape(ctx: Context, index: number, start: number, en
     const pos = basePoint(ctx, s, offset);
     const scale = 0.4 + rand(104) * 1.2;
     const angle = rand(105) * Math.PI * 2;
-    if (rand(106) < 0.58 && shrubsCount < 230) {
+    if (rand(106) < 0.58 && shrubsCount < shrubMax) {
       const biome = biomeAt(s);
       const palette = FOLIAGE[biome];
       setInstance(shrubs, shrubsCount++, pos.clone().add(new THREE.Vector3(0, 0.45 * scale, 0)),
         new THREE.Vector3(scale, scale * 0.75, scale),
         angle, palette[Math.floor(rand(107) * palette.length)]);
-    } else if (rand(106) < 0.9 && flowerCount < 250) {
+    } else if (rand(106) < 0.9 && flowerCount < flowerMax) {
       setInstance(flowers, flowerCount++, pos.clone().add(new THREE.Vector3(0, 0.35 * scale, 0)),
         new THREE.Vector3(scale, scale, scale), angle,
         ["#f3d783", "#f6eac2", "#ffffff", "#efa8bb", "#c4abeb"][Math.floor(rand(109) * 5)]);
-    } else if (rockCount < 75) {
+    } else if (rockCount < rockMax) {
       const rockSize = 0.55 + rand(108) * 1.85;
       setInstance(rocks, rockCount++, pos.clone().add(new THREE.Vector3(0, rockSize * 0.26, 0)),
         new THREE.Vector3(rockSize, rockSize * 0.6, rockSize * 0.9), angle,

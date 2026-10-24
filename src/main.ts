@@ -95,6 +95,7 @@ function resize(): void {
 window.addEventListener("resize", resize);
 qualitySelect.addEventListener("change", () => {
   quality = Number(qualitySelect.value) || 1;
+  world.setDensity(quality <= 0.7 ? 0.5 : quality >= 1.3 ? 1.2 : 1);
   resize();
 });
 resize();

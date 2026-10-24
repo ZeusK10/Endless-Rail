@@ -37,6 +37,7 @@ const biomeGrass: Record<Biome, THREE.Color> = {
 export class WorldStream {
   private readonly chunks = new Map<number, Chunk>();
   private readonly landscape: Landscape;
+  private densityScale = 1;
   private origin = new THREE.Vector3();
   private originDistance = Number.NaN;
   biomeName = BIOME_NAMES.highlands;
@@ -45,6 +46,13 @@ export class WorldStream {
     readonly scene: THREE.Scene,
     readonly rail: RailPath,
   ) { this.landscape = new Landscape(rail); }
+
+  setDensity(scale: number): void {
+    const value = THREE.MathUtils.clamp(scale, 0.45, 1.2);
+    if (value === this.densityScale) return;
+    this.densityScale = value;
+    this.clear();
+  }
 
   get originPoint(): THREE.Vector3 {
     return this.origin;
@@ -104,7 +112,7 @@ export class WorldStream {
     this.createTerrain(chunk, start, end);
     this.createRail(chunk, start, end);
     populateLandscape({ chunk, rail: this.rail, landscape: this.landscape },
-      index, start, end);
+      index, start, end, this.densityScale);
     if (((index % 12) + 12) % 12 === 7) {
       populateVillage({ chunk, rail: this.rail, landscape: this.landscape }, index, mid);
     }

@@ -6,17 +6,17 @@ A lightweight, single-player, browser-based toy-train journey through a procedur
 
 - Three.js + TypeScript + Vite.
 - Deterministic, smooth railway sampled by travel distance.
-- Streamed low-poly terrain and railway chunks, including driving backwards through previously visited scenery.
-- Green Highlands, Cherry Blossom Valley and Lakeside Valley; foliage mixes green, pink, yellow, brown and red.
-- Occasional biome-themed villages, bridges of scenery created by rail/terrain composition, and water features.
+- Streamed, deterministic multi-level terrain with rolling valleys, high ridgelines, sculpted lakes and railway cuttings; reversing regenerates the same places.
+- Dense three-tier broadleaf, pine and blossom forests, colorful bushes, flowers and rocky outcrops in Green Highlands, Cherry Blossom Valley and Lakeside Valley.
+- Occasional biome-themed villages with roof slopes, trim, windows, chimneys, porches, paths, fences and water features.
 - One diesel locomotive and three passenger cars with simple acceleration, braking, coasting and gradient physics.
 - Manual, cruise control and autodrive; optional simplified derailment.
-- Controller, keyboard and touchscreen controls; four cameras.
+- Controller, keyboard and touchscreen controls; four train cameras plus free-fly camera with independent world streaming.
 - Optional speed, smooth-driving and scenic activities. Session-only milestones.
-- Main menu and minimalist HUD.
+- Main menu, minimalist HUD and low/balanced/high rendering and vegetation-density settings.
 - **No accounts, multiplayer, backend or save system. Refresh resets the experience.**
 
-The scene is a playable early version, not a finished art or simulation release. Several train types, detailed stations, track junctions, advanced bridge/tunnel generation and richer sound effects are future improvements.
+The scenery is richer stylized low-poly art, rather than photorealism. The scene is a playable early version, not a finished art or simulation release. Several train types, detailed stations, track junctions, advanced bridge/tunnel generation and richer sound effects are future improvements.
 
 ## Run
 
@@ -47,11 +47,16 @@ npm run build
 | H / A | Horn / recover after derailment |
 | L / B | Toggle headlight |
 | E / X | Join optional activity |
-| C / Y | Change camera |
+| C / Y | Cycle train-follow cameras (or return from free cam) |
+| V / gamepad View-Select / FREE | Toggle detached free-fly camera |
+| Free cam: W/A/S/D or left stick | Fly forward/back/strafe |
+| Free cam: Space/Shift or LB/RB | Move up/down |
+| Free cam: Ctrl or RT | Fly faster |
+| Free cam: mouse drag / right stick | Look around |
 | Mouse drag / right stick | Orbit chase camera |
 | Esc / Menu | Pause |
 
-Touch buttons appear on coarse-pointer devices. Keyboard and gamepad also work on supported browsers.
+Free-cam touch flight buttons appear when flight mode is active. Touch buttons appear on coarse-pointer devices. Keyboard and gamepad also work on supported browsers.
 
 ## Development and review
 
