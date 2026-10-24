@@ -151,6 +151,10 @@ test("locomotive headlights project forward and obey the light toggle", () => {
     return spot;
   };
   assert.ok(activeSpot(), "the active locomotive needs a forward spotlight");
+  const spots: THREE.SpotLight[] = [];
+  scene.traverse(o => { if (o instanceof THREE.SpotLight) spots.push(o); });
+  assert.equal(spots.length, 3, "three front diesel bulbs should each emit forward");
+  assert.ok(spots.every(light => light.target.position.z < light.position.z - 20));
   assert.ok(activeSpot()!.target.position.z < activeSpot()!.position.z - 20);
   assert.ok(scene.getObjectByName("forward-headlight-beam")?.visible);
   view.toggleLights();

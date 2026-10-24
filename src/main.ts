@@ -376,7 +376,7 @@ function updateCamera(dt: number): void {
   } else if (cameraMode === 4) {
     // Behind the locomotive windshield, not embedded in the solid hood.
     desiredCamera.copy(target).addScaledVector(forward, -2.55).addScaledVector(side, .40);
-    desiredCamera.y += 3.48;
+    desiredCamera.y += 4.05;
     aim.copy(target).addScaledVector(forward, 32);
     aim.y += 3.1;
   } else {
