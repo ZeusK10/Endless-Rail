@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { RailPath } from "../sim/rail";
+import type { TrainType } from "../sim/train";
 import { TRAIN_CAR_COUNT, TRAIN_CAR_SPACING } from "./constants";
 
 // Shared geometries and materials avoid hundreds of individual GPU buffers.
@@ -245,6 +246,82 @@ function locomotive(): Car {
   return { group, wheels, lights, headlamp, exhaust };
 }
 
+function electricLocomotive(): Car {
+  const group = new THREE.Group();
+  const wheels: THREE.Group[] = [];
+  const lights: THREE.Mesh[] = [];
+  box(group, [3.2, .42, 8.4], [0, 1.4, 0], graphite);
+  box(group, [3.12, 2.55, 7.9], [0, 2.93, 0], blue);
+  box(group, [3.2, .36, 8.2], [0, 2.25, 0], stripe);
+  box(group, [3.16, .22, 8.0], [0, 4.26, 0], graphite);
+  for (const side of [-1, 1]) {
+    box(group, [.07, 1.03, 1.42], [side * 1.6, 3.28, -3.1], glass);
+    box(group, [.07, 1.03, 1.42], [side * 1.6, 3.28, 3.1], glass);
+    for (let j = 0; j < 6; j++) {
+      box(group, [.06, .62, .17], [side * 1.61, 3.02, -1.8 + j * .72], metal);
+    }
+  }
+  // Twin raised pantographs distinguish the electric train in silhouette.
+  for (const z of [-1.95, 1.8]) {
+    for (const x of [-.65, .65]) {
+      rod(group, new THREE.Vector3(x, 4.35, z - .65),
+        new THREE.Vector3(-x, 5.32, z + .65), .075, metal);
+    }
+    box(group, [2.25, .12, .18], [0, 5.34, z + .65], dark);
+  }
+  for (const x of [-.86, .86]) {
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(.24, 8, 6), litGlass);
+    lamp.position.set(x, 2.3, -4.06);
+    group.add(lamp);
+    lights.push(lamp);
+  }
+  const headlamp = new THREE.PointLight("#fff0c2", 4.2, 18, 2);
+  headlamp.position.set(0, 2.5, -4.2);
+  group.add(headlamp);
+  bogies(group, [-2.42, 2.42], wheels);
+  detailsAtEnds(group, 8.0);
+  return { group, wheels, lights, headlamp, exhaust: [] };
+}
+
+function steamLocomotive(): Car {
+  const group = new THREE.Group();
+  const wheels: THREE.Group[] = [];
+  const lights: THREE.Mesh[] = [];
+  const exhaust: THREE.Group[] = [];
+  box(group, [3.05, .34, 8.4], [0, 1.25, 0], graphite);
+  const boiler = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.15, 5.65, 12), dark);
+  boiler.rotation.x = Math.PI / 2;
+  boiler.position.set(0, 2.78, -1.1);
+  group.add(boiler);
+  box(group, [2.95, 2.6, 2.55], [0, 2.83, 2.65], burgundy);
+  box(group, [3.17, .20, 2.75], [0, 4.29, 2.65], graphite);
+  for (const x of [-.73, .73]) {
+    box(group, [1.18, 1.05, .09], [x, 3.30, 1.32], glass);
+  }
+  for (const z of [-3.2, -1.4, .45]) {
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(1.17, .08, 5, 12), brass);
+    ring.position.set(0, 2.78, z);
+    group.add(ring);
+  }
+  const funnel = new THREE.Mesh(new THREE.CylinderGeometry(.48, .29, 1.3, 9), dark);
+  funnel.position.set(0, 4.26, -2.92);
+  group.add(funnel);
+  const puff = new THREE.Group();
+  puff.position.set(0, 5.02, -2.92);
+  group.add(puff);
+  exhaust.push(puff);
+  box(group, [2.9, .7, 1.25], [0, 1.47, -3.67], scarlet);
+  const lamp = new THREE.Mesh(new THREE.SphereGeometry(.31, 10, 6), litGlass);
+  lamp.position.set(0, 3.18, -4.1);
+  group.add(lamp);
+  lights.push(lamp);
+  const headlamp = new THREE.PointLight("#ffddac", 4.2, 19, 2);
+  headlamp.position.set(0, 3.2, -4.2);
+  group.add(headlamp);
+  bogies(group, [-2.4, 2.4], wheels);
+  return { group, wheels, lights, headlamp, exhaust };
+}
+
 function carriage(index: number): Car {
   const group = new THREE.Group();
   const wheels: THREE.Group[] = [];
@@ -301,15 +378,20 @@ function carriage(index: number): Car {
 export class TrainView {
   private readonly groups: THREE.Group[] = [];
   private readonly wheels: THREE.Group[] = [];
-  private readonly headlights: THREE.Mesh[];
-  private readonly headlamp: THREE.PointLight;
-  private readonly exhaust: THREE.Group[];
+  private headlights: THREE.Mesh[];
+  private headlamp: THREE.PointLight;
+  private exhaust: THREE.Group[];
+  private readonly locomotives: Record<TrainType, Car>;
+  private activeType: TrainType = "diesel";
   lights = true;
   private wheelRotation = 0;
   private derailBlend = 0;
 
   constructor(private readonly scene: THREE.Scene, private readonly rail: RailPath) {
     const loco = locomotive();
+    this.locomotives = {
+      diesel: loco, electric: electricLocomotive(), steam: steamLocomotive(),
+    };
     this.groups.push(loco.group);
     this.wheels.push(...loco.wheels);
     this.headlights = loco.lights ?? [];
@@ -323,6 +405,22 @@ export class TrainView {
       this.wheels.push(...car.wheels);
       scene.add(car.group);
     }
+  }
+
+  setTrainType(type: TrainType): void {
+    if (this.activeType === type) return;
+    const previous = this.locomotives[this.activeType];
+    const next = this.locomotives[type];
+    this.scene.remove(previous.group);
+    this.groups[0] = next.group;
+    this.wheels.splice(0, previous.wheels.length, ...next.wheels);
+    this.headlights = next.lights ?? [];
+    this.headlamp = next.headlamp!;
+    this.exhaust = next.exhaust ?? [];
+    this.headlights.forEach(mesh => { mesh.visible = this.lights; });
+    this.headlamp.intensity = this.lights ? 4.2 : 0;
+    this.scene.add(next.group);
+    this.activeType = type;
   }
 
   toggleLights(): void {

@@ -1,7 +1,8 @@
 import * as THREE from "three";
 import "./style.css";
 import { RailPath } from "./sim/rail";
-import { TrainSimulation, type DrivingMode } from "./sim/train";
+import { TrainSimulation, type DrivingMode, type TrainType } from "./sim/train";
+import { WeatherSystem } from "./game/weather";
 import { WorldStream } from "./world/world";
 import { TrainView } from "./game/train-view";
 import { Controls } from "./game/controls";
@@ -37,6 +38,7 @@ const trainView = new TrainView(scene, rail);
 const controls = new Controls(renderer.domElement);
 const activities = new ActivityManager(seed);
 const audio = new TrainAudio();
+const weather = new WeatherSystem(scene, camera, sunlight, seed);
 
 const startScreen = element<HTMLElement>("start-screen");
 const pauseScreen = element<HTMLElement>("pause-screen");
@@ -57,6 +59,9 @@ const speedLimitValue = element<HTMLElement>("speed-limit-value");
 const driverMessage = element<HTMLElement>("driver-message");
 const sensitivityInput = element<HTMLInputElement>("camera-sensitivity");
 const adaptiveQualityToggle = element<HTMLInputElement>("adaptive-quality");
+const trainTypeSelect = element<HTMLSelectElement>("train-type-select");
+const weatherToggle = element<HTMLInputElement>("weather-toggle");
+const weatherValue = element<HTMLElement>("weather-value");
 const loadingStatus = element<HTMLElement>("loading-status");
 const safetyWarning = element<HTMLElement>("safety-warning");
 const activityNotice = element<HTMLElement>("activity-notice");
@@ -156,6 +161,18 @@ function setSettings(open: boolean): void {
 settingsButton.addEventListener("click", () => setSettings(!settingsOpen));
 settingsClose.addEventListener("click", () => setSettings(false));
 settingsScrim.addEventListener("click", () => setSettings(false));
+trainTypeSelect.addEventListener("change", () => {
+  const type = trainTypeSelect.value as TrainType;
+  if (simulation.setTrainType(type)) {
+    trainView.setTrainType(type);
+    audio.setEngineType(type);
+  } else {
+    trainTypeSelect.value = simulation.trainType;
+    driverMessage.textContent = "Stop the train before switching locomotives";
+    driverMessageUntil = performance.now() + 2700;
+  }
+});
+weatherToggle.addEventListener("change", () => weather.setEnabled(weatherToggle.checked));
 modeButtons.forEach(button => button.addEventListener("click", () => {
   simulation.setMode(button.dataset.mode as DrivingMode);
 }));
@@ -352,6 +369,7 @@ function updateInterface(): void {
   bestSpeedValue.textContent = String(Math.round(activities.bestSpeedKmh));
   overspeedValue.textContent = String(Math.round(activities.overspeedMeters));
   milestoneValue.textContent = String(activities.milestones);
+  weatherValue.textContent = weather.label;
   loadingStatus.hidden = !playing || audio.audioProgress >= 1;
   loadingStatus.textContent = "Loading railway audio: " +
     Math.round(audio.audioProgress * 100) + "%";
@@ -452,6 +470,7 @@ renderer.setAnimationLoop((time) => {
   trainView.update(simulation.distance, simulation.speed, dt, world.originPoint,
     simulation.throttle, simulation.derailed);
   updateCamera(Math.max(dt, 1 / 60));
+  weather.update(simulation.distance, paused ? 0 : dt);
   audio.update({
     speedKmh: simulation.speedKmh,
     throttle: simulation.throttle,

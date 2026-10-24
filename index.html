@@ -60,6 +60,13 @@
       </div>
       <div class="drawer-scroll">
         <div class="drawer-section">
+          <h3>Locomotive</h3>
+          <label class="setting-row"><span>Train type (change when stopped)</span>
+            <select id="train-type-select">
+              <option value="diesel" selected>Diesel</option>
+              <option value="electric">Electric</option>
+              <option value="steam">Steam</option>
+            </select></label>
           <h3>Operating mode</h3>
           <div class="mode-options" role="group" aria-label="Operating mode">
             <button data-mode="manual" aria-pressed="true">Manual</button>
@@ -94,6 +101,9 @@
           <div class="journey-summary">Derailment chance: <b id="risk-value">OFF</b></div>
           <label class="setting-row"><span>Camera sensitivity</span>
             <input id="camera-sensitivity" type="range" min="50" max="180" value="100" /></label>
+          <label class="setting-row"><span>Dynamic weather</span>
+            <input id="weather-toggle" type="checkbox" checked /></label>
+          <div class="journey-summary">Conditions: <b id="weather-value">Clear skies</b></div>
           <label class="setting-row"><span>Adaptive performance</span><input id="adaptive-quality" type="checkbox" checked /></label>
           <label class="setting-row"><span>Graphics quality</span>
             <select id="quality-select">

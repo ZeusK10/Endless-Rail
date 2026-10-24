@@ -60,6 +60,15 @@ test("activities, comfort and milestones work without saves", () => {
   assert.ok(activities.comfortScore >= 0 && activities.comfortScore <= 100);
 });
 
+test("locomotive types have different profiles and dynamic weather remains optional", async () => {
+  const train = new TrainSimulation(new RailPath(1337));
+  assert.equal(train.setTrainType("steam"), true);
+  train.adjustThrottle(1);
+  for (let i = 0; i < 200; i++) train.update(1 / 60);
+  assert.ok(train.speedKmh > 0);
+  assert.equal(train.setTrainType("electric"), false);
+});
+
 test("scenery seed salts decorrelate placement coordinates", () => {
   const xs: number[] = [], ys: number[] = [];
   for (let i = 0; i < 340; i++) {

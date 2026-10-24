@@ -4,6 +4,8 @@
  * Attribution/provenance: AUDIO_SOURCES.md.
  */
 
+import type { TrainType } from "../sim/train";
+
 export interface TrainSoundFrame {
   speedKmh: number;
   throttle: number;
@@ -41,6 +43,10 @@ export class TrainAudio {
   private lastDerailed = false;
   private hornBusyUntil = -100;
   private completedLoads = 0;
+  private engineType: TrainType = "diesel";
+  private lastSteamPuff = 0;
+
+  setEngineType(type: TrainType): void { this.engineType = type; }
 
   get audioProgress(): number { return this.completedLoads / 3; }
   private mix = { master: 1, engine: 1, rails: 1, horn: 1, effects: 1 };
@@ -269,7 +275,8 @@ export class TrainAudio {
       ramp(this.idleVoice.source.playbackRate, 0.94 + throttle * 0.17 + speed * 0.05, 0.35);
       // Preserve a subtle diesel idle while wheels dominate as speed rises.
       ramp(this.idleVoice.gain.gain, active
-        ? this.idleVoice.level * this.mix.engine * Math.max(0.035, 0.19 + throttle * 0.07 - speed * 0.17) : 0);
+        ? this.idleVoice.level * this.mix.engine * Math.max(0.035, 0.19 + throttle * 0.07 - speed * 0.17) *
+          (this.engineType === "diesel" ? 1 : this.engineType === "steam" ? .12 : .025) : 0);
     }
     if (this.railVoice) {
       ramp(this.railVoice.source.playbackRate, 0.83 + speed * 0.49, 0.26);
@@ -281,9 +288,12 @@ export class TrainAudio {
 
     // No jet-like continuous whoosh. The low fallback pulse fades as soon as
     // the field-recorded diesel arrives; wind is already present in the rails.
-    ramp(this.fallbackEngine.frequency, 38 + throttle * 18 + speed * 9, 0.28);
+    ramp(this.fallbackEngine.frequency,
+      this.engineType === "electric" ? 88 + throttle * 70 + speed * 28 :
+      38 + throttle * 18 + speed * 9, 0.28);
     ramp(this.fallbackGain.gain,
-      active ? (this.idleVoice ? 0.005 : 0.027 + throttle * 0.015) * this.mix.engine : 0);
+      active ? (this.engineType === "electric" ? .018 + throttle * .012 :
+        this.idleVoice ? .005 : .027 + throttle * .015) * this.mix.engine : 0);
     ramp(this.brakeGain.gain,
       active && moving ? clamp(frame.brake) * Math.sqrt(speed) * 0.032 * this.mix.effects : 0);
 
@@ -291,6 +301,14 @@ export class TrainAudio {
     const flangeAmount = curve * Math.pow(speed, 0.8) * (0.003 + risk * 0.012);
     ramp(this.flangeGain.gain, active && moving ? flangeAmount * this.mix.effects : 0, 0.25);
     ramp(this.flange.frequency, 570 + speed * 260 + risk * 130, 0.3);
+
+    if (active && moving && this.engineType === "steam") {
+      const puff = Math.floor(frame.traveled / 7);
+      if (puff > this.lastSteamPuff) this.noiseBurst(now, .11, .023 * this.mix.engine, 480);
+      this.lastSteamPuff = puff;
+    } else {
+      this.lastSteamPuff = Math.floor(frame.traveled / 7);
+    }
 
     if (active && moving) {
       const joint = Math.floor(frame.traveled / 14);
