@@ -141,3 +141,67 @@ button:active { transform: scale(.97); }
 
 .risk-medium { color: #ba7928; }
 .risk-high { color: #c24c46; font-weight: 900; }
+
+/* Compact driving instruments with a separate, sliding settings panel. */
+.hud-actions { display: flex; align-items: center; gap: 7px; pointer-events: auto; }
+.hud-actions .hud-pause { white-space: nowrap; }
+.settings-scrim {
+  position: fixed; inset: 0; z-index: 11;
+  border: 0; width: 100%; background: rgba(19, 47, 40, .27);
+  backdrop-filter: blur(2px); padding: 0;
+}
+.settings-drawer {
+  position: fixed; top: 0; right: 0; z-index: 12;
+  height: 100vh; height: 100dvh; width: min(390px, 92vw);
+  display: flex; flex-direction: column;
+  background: #f9fff7; color: #2d5147;
+  border-left: 1px solid rgba(255,255,255,.82);
+  box-shadow: -16px 0 60px rgba(23,56,47,.25);
+  transform: translateX(105%);
+  transition: transform 280ms cubic-bezier(.2,.78,.24,1);
+  pointer-events: none;
+}
+.settings-drawer.is-open { transform: translateX(0); pointer-events: auto; }
+.drawer-heading {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 15px; padding: max(22px, env(safe-area-inset-top)) 24px 16px;
+  background: #eaf6e9; border-bottom: 1px solid #d9e9dc;
+}
+.drawer-heading h2 { margin: 4px 0 0; font-size: 27px; letter-spacing: -.04em; }
+.drawer-close {
+  display: grid; place-items: center; flex-shrink: 0;
+  width: 40px; height: 40px; border: 0; border-radius: 11px;
+  background: #d8eadd; color: #426a57; font-size: 19px;
+}
+.drawer-scroll {
+  overflow-y: auto; overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 8px 24px max(22px, env(safe-area-inset-bottom));
+}
+.drawer-section { padding: 13px 0 16px; border-bottom: 1px solid #dfebe0; }
+.drawer-section h3 { margin: 0 0 12px; color: #245b52; font-size: 15px; }
+.drawer-section p { margin: 10px 0 0; font-size: 12px; line-height: 1.6; color: #607d6e; }
+.mode-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
+.mode-options button, .drawer-grid button {
+  min-height: 42px; border-radius: 10px;
+  border: 1px solid #d4e4d5; background: #edf5ec;
+  color: #426e5b; font-size: 12px; font-weight: 780;
+}
+.mode-options button[aria-pressed="true"],
+.drawer-grid button[aria-pressed="true"] {
+  background: #327d65; color: #fff; border-color: #327d65;
+}
+.drawer-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.drawer-grid button { min-height: 44px; }
+.journey-summary { font-size: 12px; color: #527668; margin-top: 11px; }
+.drawer-section .setting-row { padding: 8px 0 12px; }
+.settings-drawer .small { font-size: 11px; }
+@media (max-width: 580px) {
+  .hud-main { width: min(290px, calc(100vw - 35px)); }
+  .hud-title .eyebrow { font-size: 9px; }
+  .hud-actions .hud-pause { padding: 5px 6px; font-size: 11px; }
+  .drawer-scroll { padding-left: 18px; padding-right: 18px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .settings-drawer { transition: none; }
+}

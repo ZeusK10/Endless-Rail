@@ -26,6 +26,8 @@ export interface InputFrame {
 export class Controls {
   private readonly keys = new Set<string>();
   private readonly touch = new Set<string>();
+  private readonly pendingTaps = new Set<string>();
+  private readonly activeTouchPointers = new Map<number, string>();
   private readonly edges = new Map<string, boolean>();
   private dragging = false;
   private pointerX = 0;
@@ -36,6 +38,7 @@ export class Controls {
 
   constructor(canvas: HTMLCanvasElement) {
     window.addEventListener("keydown", (event) => {
+      if ((event.target as HTMLElement | null)?.closest("input, select, textarea, button, [contenteditable]")) return;
       if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(event.code)) {
         event.preventDefault();
       }
@@ -45,6 +48,8 @@ export class Controls {
     window.addEventListener("blur", () => {
       this.keys.clear();
       this.touch.clear();
+      this.pendingTaps.clear();
+      this.activeTouchPointers.clear();
       this.dragging = false;
     });
 
@@ -64,24 +69,30 @@ export class Controls {
     canvas.addEventListener("pointerup", () => { this.dragging = false; });
     canvas.addEventListener("pointercancel", () => { this.dragging = false; });
 
-    // Delegation covers on-screen buttons from the HTML overlay.
+    // Capture every tap as an edge even when it begins and ends between
+    // animation frames. Track pointer IDs so multi-touch never releases
+    // another finger's held brake/throttle.
     document.addEventListener("pointerdown", (event) => {
       const element = (event.target as HTMLElement).closest<HTMLElement>("[data-control]");
-      if (!element) return;
-      const action = element.dataset.control;
-      if (action) {
-        this.touch.add(action);
-        element.setPointerCapture?.(event.pointerId);
-        event.preventDefault();
-      }
+      const action = element?.dataset.control;
+      if (!action) return;
+      this.activeTouchPointers.set(event.pointerId, action);
+      this.touch.add(action);
+      this.pendingTaps.add(action);
+      try { element.setPointerCapture(event.pointerId); } catch { /* Detached control. */ }
+      event.preventDefault();
     });
     const release = (event: PointerEvent) => {
-      const element = (event.target as HTMLElement).closest<HTMLElement>("[data-control]");
-      const action = element?.dataset.control;
-      if (action) this.touch.delete(action);
+      const action = this.activeTouchPointers.get(event.pointerId);
+      if (!action) return;
+      this.activeTouchPointers.delete(event.pointerId);
+      if (!Array.from(this.activeTouchPointers.values()).includes(action)) {
+        this.touch.delete(action);
+      }
     };
     document.addEventListener("pointerup", release);
     document.addEventListener("pointercancel", release);
+    document.addEventListener("lostpointercapture", release);
   }
 
   private edge(key: string, active: boolean): boolean {
@@ -101,7 +112,8 @@ export class Controls {
     const down = (key: string, touch: string) =>
       this.keys.has(key) || this.touch.has(touch);
     const pressed = (key: string, action: string, buttonIndex: number) =>
-      this.edge(action, down(key, action) || button(buttonIndex) > 0.45);
+      this.edge(action, down(key, action) || button(buttonIndex) > 0.45) ||
+      this.pendingTaps.has(action);
     const cameraX = stick(axis(2));
     const cameraY = stick(axis(3));
     const pointerX = this.deltaX;
@@ -115,6 +127,7 @@ export class Controls {
       (button(5) > 0.45 ? 1 : 0) - (button(4) > 0.45 ? 1 : 0);
     this.deltaX = 0;
     this.deltaY = 0;
+    this.pendingTaps.clear();
 
     return {
       throttleUp: down("KeyW", "throttle") || button(7) > 0.1 ||

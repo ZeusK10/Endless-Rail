@@ -25,25 +25,78 @@
 
     <section id="game-hud" class="game-hud" aria-label="Train status" hidden>
       <div class="hud-main">
-        <div class="hud-title"><span class="eyebrow">ENDLESS RAIL</span><span id="controller-value">Keyboard / touch</span><button class="hud-pause" data-control="pause" aria-label="Pause game">Ⅱ</button></div>
+        <div class="hud-title">
+          <span class="eyebrow">ENDLESS RAIL</span>
+          <div class="hud-actions">
+            <button id="settings-button" class="hud-pause" aria-label="Open settings" aria-expanded="false" aria-controls="settings-drawer">⚙ Settings</button>
+            <button class="hud-pause" data-control="pause" aria-label="Pause game">Ⅱ</button>
+          </div>
+        </div>
         <div class="speed"><strong id="speed-value">0</strong><span>KM/H</span></div>
         <div class="hud-details">
-          <span id="biome-value">Green Highlands</span><span>·</span>
           <span id="mode-value">MANUAL</span><span>·</span>
-          <span id="direction-value">FORWARD</span><span>·</span><span id="camera-value">TRAIN VIEW</span>
+          <span id="direction-value">FORWARD</span>
         </div>
         <div class="hud-details"><span>Throttle <b id="throttle-value">0%</b></span>
           <span>Brake <b id="brake-value">0%</b></span>
-          <span>Distance <b id="distance-value">0.0</b> km</span>
-          <span>Derail chance <b id="risk-value">OFF</b></span></div>
-      </div>
-      <div class="activity-box">
-        <span id="activity-value">Enjoy the journey.</span>
-        <span>✦ <b id="achievement-value">0</b></span>
+          <span>Distance <b id="distance-value">0.0</b> km</span></div>
       </div>
       <button id="recover-button" class="recover" hidden>Train derailed — recover</button>
-      <div id="control-hint" class="control-hint">W throttle · Q reduce · S brake · M mode · R/F direction · C views · V free cam · H horn · E activity · Esc pause</div>
+      <div id="control-hint" class="control-hint">W throttle · Q reduce · S brake · H horn · R/F direction · C views · ⚙ Settings · Esc pause</div>
     </section>
+
+    <button id="settings-scrim" class="settings-scrim" aria-label="Close settings" hidden></button>
+    <aside id="settings-drawer" class="settings-drawer" aria-label="Game settings" aria-hidden="true" inert>
+      <div class="drawer-heading">
+        <div><span class="eyebrow">ENDLESS RAIL</span><h2>Settings</h2></div>
+        <button id="settings-close" class="drawer-close" aria-label="Close settings">✕</button>
+      </div>
+      <div class="drawer-scroll">
+        <div class="drawer-section">
+          <h3>Operating mode</h3>
+          <div class="mode-options" role="group" aria-label="Operating mode">
+            <button data-mode="manual" aria-pressed="true">Manual</button>
+            <button data-mode="cruise" aria-pressed="false">Cruise</button>
+            <button data-mode="autodrive" aria-pressed="false">Auto drive</button>
+          </div>
+          <p>Manual: throttle and brake. Cruise: adjust target speed. Auto drive: enjoy the scenery.</p>
+        </div>
+        <div class="drawer-section">
+          <h3>Journey tools</h3>
+          <div class="drawer-grid">
+            <button id="drawer-freecam-button">Enter free camera</button>
+            <button id="drawer-lights-button" aria-pressed="true">Lights: On</button>
+            <button id="drawer-activity-button">Do activity</button>
+          </div>
+          <div class="journey-summary"><span id="biome-value">Green Highlands</span> · <span id="camera-value">TRAIN VIEW</span></div>
+          <div class="journey-summary"><span id="controller-value">Keyboard / touch</span></div>
+        </div>
+        <div class="drawer-section">
+          <h3>Game preferences</h3>
+          <label class="setting-row"><span>Optional derailment</span>
+            <input id="derail-toggle" type="checkbox" /></label>
+          <div class="journey-summary">Derailment chance: <b id="risk-value">OFF</b></div>
+          <label class="setting-row"><span>Graphics quality</span>
+            <select id="quality-select">
+              <option value="0.7">Low</option>
+              <option value="1" selected>Balanced</option>
+              <option value="1.3">High</option>
+            </select></label>
+        </div>
+        <div class="drawer-section">
+          <h3>Activities</h3>
+          <p id="activity-value">Enjoy the journey.</p>
+          <div class="journey-summary">Completed: <b id="achievement-value">0</b></div>
+        </div>
+        <div class="drawer-section">
+          <h3>Controls</h3>
+          <p><b>Drive:</b> W/Q throttle · S brake · H horn · R/F direction · C views</p>
+          <p><b>Explore:</b> V free camera · WASD move · Space/Shift altitude · E activity · L lights · M cycle mode</p>
+          <p><b>Gamepad:</b> RT throttle · LT brake · A horn · B lights · X activity · Y camera · Menu pause</p>
+          <p class="small">Settings and progress reset on refresh. No saves.</p>
+        </div>
+      </div>
+    </aside>
 
     <div id="touch-controls" class="touch-controls" aria-label="Touch train controls" hidden>
       <div class="touch-cluster">
@@ -52,11 +105,8 @@
         <button data-control="throttle" class="accent" aria-label="Increase throttle">+</button>
       </div>
       <div class="touch-cluster">
-        <button data-control="horn">HORN</button>
+        <button data-control="horn" class="accent">HORN</button>
         <button data-control="camera">CAM</button>
-        <button data-control="freeCamera">FREE</button>
-        <button data-control="mode">MODE</button>
-        <button data-control="activity">DO</button>
         <button data-control="reverse">REV</button>
         <button data-control="forward">FWD</button>
       </div>
@@ -83,14 +133,6 @@
         <span class="eyebrow">ENDLESS RAIL</span>
         <h2>Journey paused</h2>
         <p>Relax, take a break, and continue whenever you're ready.</p>
-        <label class="setting-row"><span>Optional derailment (speed + curves)</span>
-          <input id="derail-toggle" type="checkbox" /></label>
-        <label class="setting-row"><span>Graphics quality</span>
-          <select id="quality-select">
-            <option value="0.7">Low</option>
-            <option value="1" selected>Balanced</option>
-            <option value="1.3">High</option>
-          </select></label>
         <button id="resume-button" class="primary">Resume journey</button>
         <button id="restart-button" class="secondary">Start a new journey</button>
         <p class="small">Refreshing resets all progress and settings.</p>

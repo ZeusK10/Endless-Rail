@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import "./style.css";
 import { RailPath } from "./sim/rail";
-import { TrainSimulation } from "./sim/train";
+import { TrainSimulation, type DrivingMode } from "./sim/train";
 import { WorldStream } from "./world/world";
 import { TrainView } from "./game/train-view";
 import { Controls } from "./game/controls";
@@ -62,9 +62,18 @@ const recoverButton = element<HTMLButtonElement>("recover-button");
 const freeControls = element<HTMLElement>("free-controls");
 const cameraValue = element<HTMLElement>("camera-value");
 const controlHint = element<HTMLElement>("control-hint");
+const settingsButton = element<HTMLButtonElement>("settings-button");
+const settingsClose = element<HTMLButtonElement>("settings-close");
+const settingsScrim = element<HTMLButtonElement>("settings-scrim");
+const settingsDrawer = element<HTMLElement>("settings-drawer");
+const freeCamButton = element<HTMLButtonElement>("drawer-freecam-button");
+const lightsButton = element<HTMLButtonElement>("drawer-lights-button");
+const activityButton = element<HTMLButtonElement>("drawer-activity-button");
+const modeButtons = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-mode]"));
 
 let playing = false;
 let paused = false;
+let settingsOpen = false;
 let cameraMode = 0;
 let cameraYaw = 0;
 let cameraPitch = 0;
@@ -101,10 +110,55 @@ qualitySelect.addEventListener("change", () => {
 });
 resize();
 
+function setSettings(open: boolean): void {
+  settingsOpen = open && playing && !paused;
+  settingsDrawer.classList.toggle("is-open", settingsOpen);
+  settingsDrawer.inert = !settingsOpen;
+  settingsDrawer.setAttribute("aria-hidden", String(!settingsOpen));
+  settingsButton.setAttribute("aria-expanded", String(settingsOpen));
+  settingsScrim.hidden = !settingsOpen;
+  if (settingsOpen) settingsClose.focus();
+  else if (document.activeElement === settingsClose) settingsButton.focus();
+}
+
+settingsButton.addEventListener("click", () => setSettings(!settingsOpen));
+settingsClose.addEventListener("click", () => setSettings(false));
+settingsScrim.addEventListener("click", () => setSettings(false));
+modeButtons.forEach(button => button.addEventListener("click", () => {
+  simulation.setMode(button.dataset.mode as DrivingMode);
+}));
+function toggleLights(): void {
+  trainView.toggleLights();
+  lightsButton.textContent = trainView.lights ? "Lights: On" : "Lights: Off";
+  lightsButton.setAttribute("aria-pressed", String(trainView.lights));
+}
+lightsButton.addEventListener("click", toggleLights);
+activityButton.addEventListener("click", () => activities.activate(simulation.distance));
+freeCamButton.addEventListener("click", () => {
+  setFreeCamera(!freeCamera);
+  setSettings(false);
+});
+
+// Play the horn inside the actual input gesture, especially for iPad Safari;
+// the animation-loop path remains for Bluetooth gamepad input.
+document.addEventListener("pointerdown", event => {
+  if (playing && !paused && !simulation.derailed &&
+      (event.target as HTMLElement).closest('[data-control="horn"]')) {
+    audio.horn();
+  }
+}, { capture: true });
+document.addEventListener("keydown", event => {
+  if (playing && !paused && !simulation.derailed && event.code === "KeyH" &&
+      !event.repeat && !(event.target as HTMLElement).closest("input, select, textarea")) {
+    audio.horn();
+  }
+});
+
 function start(): void {
   if (playing) return;
   playing = true;
   paused = false;
+  setSettings(false);
   startScreen.hidden = true;
   hud.hidden = false;
   touchControls.hidden = false;
@@ -117,6 +171,7 @@ function start(): void {
 function setPause(value: boolean): void {
   if (!playing) return;
   paused = value;
+  if (paused) setSettings(false);
   pauseScreen.hidden = !paused;
   touchControls.hidden = paused || freeCamera;
   freeControls.hidden = paused || !freeCamera;
@@ -150,9 +205,10 @@ function setFreeCamera(enabled: boolean): void {
   touchControls.hidden = paused || enabled;
   freeControls.hidden = paused || !enabled;
   cameraValue.textContent = enabled ? "FREE FLY" : "TRAIN VIEW";
+  freeCamButton.textContent = enabled ? "Return to train view" : "Enter free camera";
   controlHint.textContent = enabled
     ? "FREE CAM · WASD move · Space/Shift altitude · Drag/right stick look · V exit"
-    : "W throttle · Q reduce · S brake · M mode · R/F direction · C views · V free cam · H horn · E activity";
+    : "W throttle · Q reduce · S brake · H horn · R/F direction · C views · ⚙ Settings · Esc pause";
 }
 
 function moveFreeCamera(input: ReturnType<Controls["read"]>, dt: number): void {
@@ -213,6 +269,8 @@ function updateInterface(): void {
   speedValue.textContent = String(Math.round(simulation.speedKmh));
   distanceValue.textContent = (simulation.traveled / 1000).toFixed(1);
   modeValue.textContent = simulation.mode.toUpperCase();
+  modeButtons.forEach(button => button.setAttribute("aria-pressed",
+    String(button.dataset.mode === simulation.mode)));
   biomeValue.textContent = world.biomeName;
   directionValue.textContent = simulation.direction === 1 ? "FORWARD" : "REVERSE";
   throttleValue.textContent = Math.round(simulation.throttle * 100) + "%";
@@ -242,14 +300,15 @@ renderer.setAnimationLoop((time) => {
   if (!playing) {
     if (input.horn || input.activity || input.pause) start();
   } else if (input.pause) {
-    setPause(!paused);
+    if (settingsOpen) setSettings(false);
+    else setPause(!paused);
   }
 
   if (playing && !paused) {
     if (input.mode) simulation.cycleMode();
     if (input.reverse) simulation.setDirection(-1);
     if (input.forward) simulation.setDirection(1);
-    if (input.lights) trainView.toggleLights();
+    if (input.lights) toggleLights();
     if (input.freeCamera) setFreeCamera(!freeCamera);
     if (input.camera) {
       if (freeCamera) setFreeCamera(false);
