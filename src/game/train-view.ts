@@ -267,11 +267,13 @@ function locomotive(): Car {
   const highLamp = new THREE.Mesh(
     new THREE.CylinderGeometry(0.31, 0.31, 0.12, 12), litGlass);
   highLamp.rotation.x = Math.PI / 2;
-  highLamp.position.set(0, 4.02, 1.21);
+  highLamp.position.set(0, 4.02, -4.22);
   group.add(highLamp);
-  // Cab-side lamp remains a visible fixture, but is not a forward beam source.
   highLamp.name = "headlight-fixture";
   lights.push(highLamp);
+  const elevatedSource = fitHeadlamp(group, 0, 4.02, -4.22, "#ffe6b4");
+  headlamps.push(elevatedSource.headlamp);
+  beams.push(elevatedSource.beam);
 
   // Front pilot, handhold and air hoses.
   box(group, [3.20, 0.45, 0.45], [0, 0.86, -4.20], scarlet);

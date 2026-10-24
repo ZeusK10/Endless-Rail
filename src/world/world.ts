@@ -87,6 +87,11 @@ const stationSignCache = new Map<number, THREE.SpriteMaterial>();
 function stationSignMaterial(id: number): THREE.SpriteMaterial {
   const cached = stationSignCache.get(id);
   if (cached) return cached;
+  if (typeof document === "undefined") {
+    const material = new THREE.SpriteMaterial({ color: "#fff4cd" });
+    stationSignCache.set(id, material);
+    return material;
+  }
   const canvas = document.createElement("canvas");
   canvas.width = 512; canvas.height = 128;
   const context = canvas.getContext("2d");

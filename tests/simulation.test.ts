@@ -398,3 +398,46 @@ test("road crossings add legible warning structures on open track", () => {
   assert.ok(crossing.children.length >= 14);
   world.clear();
 });
+
+test("scenic stops, lake life, and ground-following lanes survive streaming", () => {
+  const rail = new RailPath(42424);
+  const scene = new THREE.Scene();
+  const world = new WorldStream(scene, rail);
+  world.setDensity(.45);
+  world.setViewScale(.58);
+  world.update(125);
+  const station = scene.getObjectByName("populated-scenic-station");
+  assert.ok(station, "the open starting section should contain a populated scenic station");
+  assert.ok(station.children.length > 20);
+  world.update(1100);
+  const leaves = scene.getObjectByName("floating-lake-leaves");
+  assert.ok(leaves instanceof THREE.InstancedMesh, "lake needs efficient floating vegetation");
+  assert.equal(leaves.count, 38);
+  const boats: THREE.Object3D[] = [], anglers: THREE.Object3D[] = [];
+  scene.traverse(object => {
+    if (object.name === "occupied-rowboat") boats.push(object);
+    if (object.name === "shoreline-fishing-rod") anglers.push(object);
+  });
+  assert.ok(boats.length >= 3 && anglers.length >= 4);
+  world.update(1875);
+  assert.ok(scene.getObjectByName("terrain-following-house-paths"),
+    "village homes must be connected by terrain-hugging paths rather than boxes");
+  world.clear();
+});
+
+test("inside-train cameras hide the opaque exterior shell but restore it outside", () => {
+  const scene = new THREE.Scene();
+  const view = new TrainView(scene, new RailPath(8008));
+  const shell = scene.getObjectByName("cab-exterior-shell");
+  const coach = scene.getObjectByName("coach-exterior-shell");
+  assert.ok(shell && coach);
+  view.setInteriorCameraMode(4);
+  assert.equal(shell.visible, false);
+  assert.equal(coach.visible, true);
+  view.setInteriorCameraMode(5);
+  assert.equal(shell.visible, true);
+  assert.equal(coach.visible, false);
+  view.setInteriorCameraMode(0);
+  assert.equal(shell.visible, true);
+  assert.equal(coach.visible, true);
+});
