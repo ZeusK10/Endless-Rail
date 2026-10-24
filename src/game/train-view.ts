@@ -126,11 +126,31 @@ function detailsAtEnds(group: THREE.Group, length: number): void {
   }
 }
 
+const beamGeometry = new THREE.ConeGeometry(8.5, 38, 16, 1, true);
+beamGeometry.rotateX(Math.PI / 2);
+const beamMaterial = new THREE.MeshBasicMaterial({
+  color: "#fff4ce", transparent: true, opacity: .07,
+  depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
+});
+function fitHeadlamp(group: THREE.Group, y: number, z: number,
+  color: string): { headlamp: THREE.SpotLight; beam: THREE.Mesh } {
+  const headlamp = new THREE.SpotLight(color, 145, 82, .24, .6, 1.3);
+  headlamp.position.set(0, y, z);
+  headlamp.target.position.set(0, y - 5, z - 55);
+  group.add(headlamp, headlamp.target);
+  const beam = new THREE.Mesh(beamGeometry, beamMaterial);
+  beam.position.set(0, y - 1.0, z - 19);
+  beam.name = "forward-headlight-beam";
+  group.add(beam);
+  return { headlamp, beam };
+}
+
 interface Car {
   group: THREE.Group;
   wheels: THREE.Group[];
   lights?: THREE.Mesh[];
-  headlamp?: THREE.PointLight;
+  headlamp?: THREE.SpotLight;
+  beam?: THREE.Mesh;
   exhaust?: THREE.Group[];
 }
 
@@ -241,9 +261,7 @@ function locomotive(): Car {
   highLamp.position.set(0, 4.02, 1.21);
   group.add(highLamp);
   lights.push(highLamp);
-  const headlamp = new THREE.PointLight("#ffe6b4", 4.2, 17, 2);
-  headlamp.position.set(0, 2.4, -4.2);
-  group.add(headlamp);
+  const { headlamp, beam } = fitHeadlamp(group, 2.45, -4.3, "#ffe6b4");
 
   // Front pilot, handhold and air hoses.
   box(group, [3.20, 0.45, 0.45], [0, 0.86, -4.20], scarlet);
@@ -254,7 +272,7 @@ function locomotive(): Car {
   }
   detailsAtEnds(group, 8.25);
   bogies(group, [-2.53, 2.53], wheels);
-  return { group, wheels, lights, headlamp, exhaust };
+  return { group, wheels, lights, headlamp, beam, exhaust };
 }
 
 function electricLocomotive(): Car {
@@ -286,9 +304,7 @@ function electricLocomotive(): Car {
     group.add(lamp);
     lights.push(lamp);
   }
-  const headlamp = new THREE.PointLight("#fff0c2", 4.2, 18, 2);
-  headlamp.position.set(0, 2.5, -4.2);
-  group.add(headlamp);
+  const { headlamp, beam } = fitHeadlamp(group, 2.5, -4.25, "#fff0c2");
   // Reused cab consoles make the seated driving view recognizable.
   box(group, [2.2, .25, .74], [0, 2.73, -3.47], graphite);
   for (const x of [-.8, .8]) {
@@ -297,7 +313,7 @@ function electricLocomotive(): Car {
   }
   bogies(group, [-2.42, 2.42], wheels);
   detailsAtEnds(group, 8.0);
-  return { group, wheels, lights, headlamp, exhaust: [] };
+  return { group, wheels, lights, headlamp, beam, exhaust: [] };
 }
 
 function steamLocomotive(): Car {
@@ -332,14 +348,12 @@ function steamLocomotive(): Car {
   lamp.position.set(0, 3.18, -4.1);
   group.add(lamp);
   lights.push(lamp);
-  const headlamp = new THREE.PointLight("#ffddac", 4.2, 19, 2);
-  headlamp.position.set(0, 3.2, -4.2);
-  group.add(headlamp);
+  const { headlamp, beam } = fitHeadlamp(group, 3.2, -4.25, "#ffddac");
   box(group, [2.05, .27, .65], [0, 2.75, 1.35], graphite);
   box(group, [.8, .2, .76], [-.6, 2.12, 2.56], burgundy);
   box(group, [.8, .76, .16], [-.6, 2.55, 2.92], dark);
   bogies(group, [-2.4, 2.4], wheels);
-  return { group, wheels, lights, headlamp, exhaust };
+  return { group, wheels, lights, headlamp, beam, exhaust };
 }
 
 function carriage(index: number): Car {
@@ -545,7 +559,8 @@ export class TrainView {
   private readonly groups: THREE.Group[] = [];
   private readonly wheels: THREE.Group[] = [];
   private headlights: THREE.Mesh[];
-  private headlamp: THREE.PointLight;
+  private headlamp: THREE.SpotLight;
+  private beam: THREE.Mesh;
   private exhaust: THREE.Group[];
   private readonly locomotives: Record<TrainType, Car>;
   private activeType: TrainType = "diesel";
@@ -564,6 +579,7 @@ export class TrainView {
     this.wheels.push(...loco.wheels);
     this.headlights = loco.lights ?? [];
     this.headlamp = loco.headlamp!;
+    this.beam = loco.beam!;
     this.exhaust = loco.exhaust ?? [];
     scene.add(loco.group);
 
@@ -584,9 +600,11 @@ export class TrainView {
     this.wheels.splice(0, previous.wheels.length, ...next.wheels);
     this.headlights = next.lights ?? [];
     this.headlamp = next.headlamp!;
+    this.beam = next.beam!;
     this.exhaust = next.exhaust ?? [];
     this.headlights.forEach(mesh => { mesh.visible = this.lights; });
-    this.headlamp.intensity = this.lights ? 4.2 : 0;
+    this.headlamp.intensity = this.lights ? 145 : 0;
+    this.beam.visible = this.lights;
     this.scene.add(next.group);
     this.activeType = type;
   }
@@ -598,7 +616,8 @@ export class TrainView {
   toggleLights(): void {
     this.lights = !this.lights;
     this.headlights.forEach(mesh => { mesh.visible = this.lights; });
-    this.headlamp.intensity = this.lights ? 4.2 : 0;
+    this.headlamp.intensity = this.lights ? 145 : 0;
+    this.beam.visible = this.lights;
   }
 
   update(

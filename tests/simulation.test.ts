@@ -140,6 +140,29 @@ test("seeded ground animals and birds avoid water and dense village paths", () =
   }
 });
 
+test("locomotive headlights project forward and obey the light toggle", () => {
+  const scene = new THREE.Scene();
+  const view = new TrainView(scene, new RailPath(8231));
+  const activeSpot = () => {
+    let spot: THREE.SpotLight | undefined;
+    scene.traverse(object => {
+      if (object instanceof THREE.SpotLight) spot = object;
+    });
+    return spot;
+  };
+  assert.ok(activeSpot(), "the active locomotive needs a forward spotlight");
+  assert.ok(activeSpot()!.target.position.z < activeSpot()!.position.z - 20);
+  assert.ok(scene.getObjectByName("forward-headlight-beam")?.visible);
+  view.toggleLights();
+  assert.equal(activeSpot()!.intensity, 0);
+  assert.equal(scene.getObjectByName("forward-headlight-beam")?.visible, false);
+  view.setTrainType("steam");
+  assert.equal(activeSpot()!.intensity, 0);
+  view.toggleLights();
+  assert.ok(activeSpot()!.intensity > 0);
+  assert.equal(scene.getObjectByName("forward-headlight-beam")?.visible, true);
+});
+
 test("diesel and steam emit bounded, world-space exhaust; electric stays clean", () => {
   const rail = new RailPath(7401);
   const scene = new THREE.Scene();
