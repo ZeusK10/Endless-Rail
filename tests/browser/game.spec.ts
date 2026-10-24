@@ -15,7 +15,10 @@ test("journey, sliding settings, mode and audio controls", async ({ page }) => {
   await page.locator('[data-mode="cruise"]').click();
   await expect(page.locator('[data-mode="cruise"]')).toHaveAttribute("aria-pressed", "true");
   await page.locator("#quality-select").selectOption("0.7");
-  await page.locator("#volume-rails").fill("45");
+  await page.locator("#volume-rails").evaluate((slider: HTMLInputElement) => {
+    slider.value = "45";
+    slider.dispatchEvent(new Event("input", { bubbles: true }));
+  });
   await expect(page.locator("#volume-rails")).toHaveValue("45");
   await page.locator("#derail-toggle").check();
   await page.locator("#weather-toggle").uncheck();
