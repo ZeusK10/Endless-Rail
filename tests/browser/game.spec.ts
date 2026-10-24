@@ -10,6 +10,8 @@ test("journey, sliding settings, mode and audio controls", async ({ page }) => {
   await page.getByRole("button", { name: "Open settings" }).click();
   await expect(page.locator("#settings-drawer")).toHaveClass(/is-open/);
 
+  await page.locator("#train-type-select").selectOption("electric");
+  await expect(page.locator("#train-type-select")).toHaveValue("electric");
   await page.locator('[data-mode="cruise"]').click();
   await expect(page.locator('[data-mode="cruise"]')).toHaveAttribute("aria-pressed", "true");
   await page.locator("#quality-select").selectOption("0.7");
@@ -17,8 +19,6 @@ test("journey, sliding settings, mode and audio controls", async ({ page }) => {
   await expect(page.locator("#volume-rails")).toHaveValue("45");
   await page.locator("#derail-toggle").check();
   await page.locator("#weather-toggle").uncheck();
-  await page.locator("#train-type-select").selectOption("electric");
-  await expect(page.locator("#train-type-select")).toHaveValue("electric");
 
   await page.getByRole("button", { name: "Close settings" }).last().click();
   await expect(page.locator("#settings-drawer")).not.toHaveClass(/is-open/);
