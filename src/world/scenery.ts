@@ -313,6 +313,7 @@ function houseDetailPrototype(biome: Biome, variant: number): THREE.Group {
     }
   }
 
+  const roofDepth = depth + (biome === "cherry" ? 2.0 : 1.2);
   // A triangular gable closes the facade under the pitched roof.
   if (!modern) {
   const gableOutline = new THREE.Shape();
@@ -328,7 +329,6 @@ function houseDetailPrototype(biome: Biome, variant: number): THREE.Group {
 
   const roofLength = Math.hypot(wide / 2 + 0.6, rise) + 0.3;
   const roofAngle = Math.atan2(rise, wide / 2 + 0.6);
-  const roofDepth = depth + (biome === "cherry" ? 2.0 : 1.2);
   for (const side of [-1, 1]) {
     const section = new THREE.Group();
     section.position.set(side * wide / 4, wallTop + rise / 2, 0);
