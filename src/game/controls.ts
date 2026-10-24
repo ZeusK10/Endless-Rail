@@ -29,6 +29,7 @@ export interface InputFrame {
 
 export class Controls {
   private readonly keys = new Set<string>();
+  private readonly keyboardTaps = new Set<string>();
   private readonly touch = new Set<string>();
   private readonly pendingTaps = new Set<string>();
   private readonly activeTouchPointers = new Map<number, string>();
@@ -49,10 +50,12 @@ export class Controls {
         event.preventDefault();
       }
       this.keys.add(event.code);
+      if (!event.repeat) this.keyboardTaps.add(event.code);
     });
     window.addEventListener("keyup", (event) => this.keys.delete(event.code));
     window.addEventListener("blur", () => {
       this.keys.clear();
+      this.keyboardTaps.clear();
       this.touch.clear();
       this.pendingTaps.clear();
       this.activeTouchPointers.clear();
@@ -126,7 +129,7 @@ export class Controls {
       this.keys.has(key) || this.touch.has(touch);
     const pressed = (key: string, action: string, buttonIndex: number) =>
       this.edge(action, down(key, action) || button(buttonIndex) > 0.45) ||
-      this.pendingTaps.has(action);
+      this.pendingTaps.has(action) || this.keyboardTaps.has(key);
     const cameraX = stick(axis(2));
     const cameraY = stick(axis(3));
     const pointerX = this.deltaX;
@@ -174,6 +177,7 @@ export class Controls {
       pause: pressed("Escape", "pause", 9),
     };
     this.pendingTaps.clear();
+    this.keyboardTaps.clear();
     return frame;
   }
 }
