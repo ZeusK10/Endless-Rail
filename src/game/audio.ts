@@ -42,11 +42,15 @@ export class TrainAudio {
 
   start(): void {
     if (this.context) {
-      void this.context.resume().catch(() => { /* Await next user gesture. */ });
+      if (this.context.state !== "running") {
+        void this.context.resume().catch(() => { /* Await next user gesture. */ });
+      }
       return;
     }
     const context = new AudioContext();
     this.context = context;
+    // Explicitly resume on the start/horn pointer gesture (required by iPad Safari).
+    void context.resume().catch(() => { /* Next gesture retries. */ });
 
     const compressor = context.createDynamicsCompressor();
     compressor.threshold.value = -14;
@@ -120,9 +124,19 @@ export class TrainAudio {
         if (!response.ok) throw new Error("Audio response " + response.status);
         const sound = await context.decodeAudioData(await response.arrayBuffer());
         if (this.context !== context) return;
+        // If an unexpected muted/empty file slips through, use the audible
+        // synthetic fallback for the horn instead of silently playing it.
+        if (name === "horn") {
+          let peak = 0;
+          const waveform = sound.getChannelData(0);
+          for (let i = 0; i < waveform.length; i += 97) {
+            peak = Math.max(peak, Math.abs(waveform[i]));
+          }
+          if (peak < 0.015) throw new Error("Horn sample is silent");
+        }
         this.samples.set(name, sound);
         if (name === "idle") this.idleVoice = this.makeLoop(sound, 1600);
-        if (name === "rolling") this.railVoice = this.makeLoop(sound, 3300);
+        if (name === "rolling") this.railVoice = this.makeLoop(sound, 4800, true);
       } catch (error) {
         // Keep offline procedural fallback if a preview is unavailable.
         console.warn("Could not load bundled railway audio", name, error);
@@ -149,7 +163,7 @@ export class TrainAudio {
     return result;
   }
 
-  private makeLoop(buffer: AudioBuffer, highCut: number): LoopVoice {
+  private makeLoop(buffer: AudioBuffer, highCut: number, railDetail = false): LoopVoice {
     const context = this.context!;
     const output = this.output!;
     const source = context.createBufferSource();
@@ -162,9 +176,14 @@ export class TrainAudio {
     cleanTreble.type = "lowpass";
     cleanTreble.frequency.value = highCut;
     cleanTreble.Q.value = 0.5;
+    const presence = context.createBiquadFilter();
+    presence.type = "peaking";
+    presence.frequency.value = 980;
+    presence.Q.value = 0.78;
+    presence.gain.value = railDetail ? 5.5 : 0;
     const gain = context.createGain();
     gain.gain.value = 0;
-    source.connect(cleanBass).connect(cleanTreble).connect(gain).connect(output);
+    source.connect(cleanBass).connect(cleanTreble).connect(presence).connect(gain).connect(output);
     source.start();
     return { source, gain };
   }
@@ -196,9 +215,9 @@ export class TrainAudio {
   private railJoint(speedKmh: number): void {
     const now = this.context?.currentTime;
     if (now === undefined) return;
-    const strength = 0.007 + clamp(speedKmh / 110) * 0.014;
-    this.noiseBurst(now, 0.052, strength, 650);
-    this.noiseBurst(now + 0.105, 0.044, strength * 0.65, 430);
+    const strength = 0.019 + clamp(speedKmh / 110) * 0.023;
+    this.noiseBurst(now, 0.065, strength, 940);
+    this.noiseBurst(now + 0.105, 0.055, strength * 0.8, 570);
   }
 
   update(frame: TrainSoundFrame): void {
@@ -218,14 +237,15 @@ export class TrainAudio {
     // becomes quieter once wheel-on-rail sound takes over.
     if (this.idleVoice) {
       ramp(this.idleVoice.source.playbackRate, 0.94 + throttle * 0.17 + speed * 0.05, 0.35);
+      // Preserve a subtle diesel idle while wheels dominate as speed rises.
       ramp(this.idleVoice.gain.gain, active
-        ? 0.35 + throttle * 0.11 - speed * 0.09 : 0);
+        ? Math.max(0.035, 0.19 + throttle * 0.07 - speed * 0.17) : 0);
     }
     if (this.railVoice) {
       ramp(this.railVoice.source.playbackRate, 0.83 + speed * 0.49, 0.26);
       const speedBlend = clamp((frame.speedKmh - 3) / 22);
       ramp(this.railVoice.gain.gain,
-        active && moving ? speedBlend * (0.24 + Math.sqrt(speed) * 0.31) : 0, 0.27);
+        active && moving ? speedBlend * (0.50 + Math.sqrt(speed) * 0.30) : 0, 0.27);
     }
 
     // No jet-like continuous whoosh. The low fallback pulse fades as soon as
@@ -256,6 +276,9 @@ export class TrainAudio {
   }
 
   horn(): void {
+    // A horn may be the first control the player touches. Unlock audio here
+    // as well as at journey start, rather than depending on prior movement.
+    this.start();
     const context = this.context;
     const output = this.output;
     if (!context || !output) return;
@@ -275,8 +298,8 @@ export class TrainAudio {
       const volume = context.createGain();
       const length = recording.duration;
       volume.gain.setValueAtTime(0.001, now);
-      volume.gain.linearRampToValueAtTime(0.85, now + 0.11);
-      volume.gain.setValueAtTime(0.85, now + Math.max(0.12, length - 0.45));
+      volume.gain.linearRampToValueAtTime(1.25, now + 0.11);
+      volume.gain.setValueAtTime(1.25, now + Math.max(0.12, length - 0.45));
       volume.gain.linearRampToValueAtTime(0.001, now + length);
       source.connect(equalizer).connect(volume).connect(output);
       source.start(now);
